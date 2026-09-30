@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片检测 - 水下海洋生物目标检测与分析系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-inner">
+        <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+        <nav>
+            <a href="index.html">首页</a>
+            <a href="detect_image.html">图片检测</a>
+            <a href="detect_video.html">视频检测</a>
+            <a href="records.html">检测记录</a>
+            <a href="stats.html">数据统计</a>
+        </nav>
+        <span class="nav-status" id="nav-status">加载中...</span>
+    </div>
+</header>
+
+<div class="container">
+    <h1 class="page-title">图片检测</h1>
+    <p class="page-desc">上传水下图片, 系统调用 GSCNet 模型推理并绘制检测框</p>
+
+    <div id="alert-box"></div>
+
+    <div class="card">
+        <h2 class="card-title">上传图片</h2>
+        <div class="upload-area" id="upload-area">
+            <div class="icon">🖼️</div>
+            <div>点击选择图片, 或将图片拖拽到此处</div>
+            <div class="hint">支持 JPG / PNG / BMP / WEBP / TIFF, 单文件不超过 <span id="max-size">300</span>MB</div>
+            <input type="file" id="file-input" accept="image/*" hidden>
+        </div>
+        <div class="file-name hidden" id="file-name"></div>
+
+        <div class="row" style="margin-top:16px; align-items:flex-end;">
+            <div class="field slider-field">
+                <label>置信度阈值 <b id="conf-value">0.25</b></label>
+                <input type="range" id="conf-slider" min="0.05" max="0.95" step="0.01" value="0.25">
+                <div class="range-scale"><span>0.05 更灵敏</span><span>0.95 更严格</span></div>
+            </div>
+            <button class="btn" id="btn-detect" disabled>开始检测</button>
+            <button class="btn btn-secondary" id="btn-reset">重置</button>
+            <span class="small muted" id="progress-text"></span>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div class="card">
+            <h2 class="card-title">原始图片</h2>
+            <div class="image-box">
+                <div class="placeholder" id="origin-placeholder">尚未选择图片</div>
+                <img id="origin-img" class="hidden" alt="原始图片">
+            </div>
+        </div>
+        <div class="card">
+            <h2 class="card-title">检测结果</h2>
+            <div class="image-box">
+                <div class="placeholder" id="result-placeholder">检测完成后在此显示带检测框的结果图</div>
+                <img id="result-img" class="hidden" alt="检测结果">
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">检测统计</h2>
+        <div class="grid-3">
+            <div class="stat-card">
+                <div class="label">目标总数</div>
+                <div class="value" id="stat-total">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">推理耗时</div>
+                <div class="value" id="stat-cost">0<small style="font-size:13px;"> ms</small></div>
+            </div>
+            <div class="stat-card">
+                <div class="label">图片尺寸</div>
+                <div class="value" id="stat-size" style="font-size:18px;">-</div>
+            </div>
+        </div>
+
+        <h3 style="font-size:14px;margin:18px 0 8px;">各类别目标数量</h3>
+        <div class="tag-list" id="class-tags">
+            <span class="muted small">暂无数据</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">检测明细</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>#</th><th>类别</th><th>置信度</th><th>边界框 (x1, y1, x2, y2)</th><th>框尺寸</th>
+                </tr>
+                </thead>
+                <tbody id="detail-body">
+                <tr><td colspan="5" class="empty">暂无检测结果</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/image.js"></script>
+</body>
+</html>

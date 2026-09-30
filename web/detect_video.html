@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频检测 - 水下海洋生物目标检测与分析系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-inner">
+        <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+        <nav>
+            <a href="index.html">首页</a>
+            <a href="detect_image.html">图片检测</a>
+            <a href="detect_video.html">视频检测</a>
+            <a href="records.html">检测记录</a>
+            <a href="stats.html">数据统计</a>
+        </nav>
+        <span class="nav-status" id="nav-status">加载中...</span>
+    </div>
+</header>
+
+<div class="container">
+    <h1 class="page-title">视频检测</h1>
+    <p class="page-desc">上传视频后逐帧检测, 浏览器实时显示检测画面与目标数量统计</p>
+
+    <div id="alert-box"></div>
+
+    <div class="card">
+        <h2 class="card-title">上传视频</h2>
+        <div class="upload-area" id="upload-area">
+            <div class="icon">🎬</div>
+            <div>点击选择视频, 或将视频拖拽到此处</div>
+            <div class="hint">建议使用 MP4 (H.264) 编码, 短片段可获得更好实时性</div>
+            <input type="file" id="file-input" accept="video/*" hidden>
+        </div>
+        <div class="file-name hidden" id="file-name"></div>
+
+        <div class="row" style="margin-top:16px; align-items:flex-end;">
+            <div class="field slider-field">
+                <label>置信度阈值 <b id="conf-value">0.25</b></label>
+                <input type="range" id="conf-slider" min="0.05" max="0.95" step="0.01" value="0.25">
+                <div class="range-scale"><span>0.05 更灵敏</span><span>0.95 更严格</span></div>
+            </div>
+            <button class="btn" id="btn-start" disabled>开始检测</button>
+            <button class="btn btn-secondary" id="btn-pause" disabled>暂停检测</button>
+            <button class="btn btn-secondary" id="btn-resume" disabled>继续检测</button>
+            <button class="btn btn-danger hidden" id="btn-stop">停止检测</button>
+        </div>
+        <div class="small muted" id="video-meta" style="margin-top:10px;"></div>
+        <div class="progress" style="margin-top:10px;"><div id="progress-bar"></div></div>
+        <div class="small muted" style="margin-top:6px;" id="progress-text"></div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">实时检测画面</h2>
+        <div class="video-stage">
+            <div class="placeholder" id="stage-placeholder">上传视频并开始检测后, 此处实时显示带检测框的画面</div>
+            <canvas id="video-canvas" class="hidden"></canvas>
+            <div class="paused-mask hidden" id="paused-mask">已暂停检测</div>
+        </div>
+
+        <div class="live-stats" style="margin-top:14px;">
+            <div class="live-stat">
+                <div class="k">当前帧目标数量</div>
+                <div class="v" id="live-total">0</div>
+            </div>
+            <div class="live-stat">
+                <div class="k">处理速度 (FPS)</div>
+                <div class="v" id="live-fps">0.0</div>
+            </div>
+            <div class="live-stat">
+                <div class="k">播放时间</div>
+                <div class="v" id="live-time" style="font-size:18px;">0.0 s</div>
+            </div>
+            <div class="live-stat">
+                <div class="k">单帧峰值</div>
+                <div class="v" id="live-peak">0</div>
+            </div>
+        </div>
+
+        <h3 style="font-size:14px;margin:14px 0 8px;">当前帧各类别数量</h3>
+        <div class="tag-list" id="live-tags">
+            <span class="muted small">暂无数据</span>
+        </div>
+    </div>
+
+    <div class="card hidden" id="summary-card">
+        <h2 class="card-title">
+            检测完成统计
+            <a class="btn btn-sm btn-secondary" href="records.html">查看历史记录</a>
+        </h2>
+        <div class="grid-4">
+            <div class="stat-card"><div class="label">处理帧数</div><div class="value" id="sum-frames">0</div></div>
+            <div class="stat-card"><div class="label">平均速度</div><div class="value" id="sum-fps">0.0</div></div>
+            <div class="stat-card"><div class="label">单帧峰值</div><div class="value" id="sum-peak">0</div></div>
+            <div class="stat-card"><div class="label">平均每帧目标</div><div class="value" id="sum-avg">0</div></div>
+        </div>
+        <h3 style="font-size:14px;margin:18px 0 8px;">全程各类别累计数量</h3>
+        <div class="tag-list" id="sum-tags"></div>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/video.js"></script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据统计 - 水下海洋生物目标检测与分析系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-inner">
+        <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+        <nav>
+            <a href="index.html">首页</a>
+            <a href="detect_image.html">图片检测</a>
+            <a href="detect_video.html">视频检测</a>
+            <a href="records.html">检测记录</a>
+            <a href="stats.html">数据统计</a>
+        </nav>
+        <span class="nav-status" id="nav-status">加载中...</span>
+    </div>
+</header>
+
+<div class="container">
+    <h1 class="page-title">数据统计</h1>
+    <p class="page-desc">基于数据库中的真实检测记录动态生成, 无示例数据</p>
+
+    <div id="alert-box"></div>
+
+    <div class="grid-4">
+        <div class="stat-card">
+            <div class="label">今日检测次数</div>
+            <div class="value" id="stat-today">0</div>
+            <div class="extra" id="stat-today-objects">今日检出目标 0 个</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">累计检测次数</div>
+            <div class="value" id="stat-total">0</div>
+            <div class="extra" id="stat-total-detail">图片 0 / 视频 0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">检测目标总数</div>
+            <div class="value" id="stat-objects">0</div>
+            <div class="extra">全部记录累计</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">不同类别数量</div>
+            <div class="value" id="stat-classes">0</div>
+            <div class="extra" id="stat-avg">平均推理耗时 0 ms</div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:18px;">
+        <h2 class="card-title">
+            检测趋势
+            <span class="row">
+                <select id="trend-days" style="min-width:120px;">
+                    <option value="7">最近 7 天</option>
+                    <option value="14">最近 14 天</option>
+                    <option value="30">最近 30 天</option>
+                </select>
+            </span>
+        </h2>
+        <div class="grid-2">
+            <div class="chart-box"><canvas id="chart-bar"></canvas></div>
+            <div class="chart-box"><canvas id="chart-line"></canvas></div>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div class="card">
+            <h2 class="card-title">各类别目标数量占比</h2>
+            <div class="chart-box"><canvas id="chart-pie"></canvas></div>
+        </div>
+        <div class="card">
+            <h2 class="card-title">图片 / 视频检测分布</h2>
+            <div class="chart-box"><canvas id="chart-doughnut"></canvas></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">各类别累计数量明细</h2>
+        <div class="tag-list" id="class-tags"><span class="muted small">暂无数据</span></div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">最近检测记录</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr><th>时间</th><th>文件名</th><th>类型</th><th>目标数量</th><th>状态</th></tr>
+                </thead>
+                <tbody id="recent-body">
+                <tr><td colspan="5" class="empty">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="vendor/chart.js"></script>
+<script src="js/common.js"></script>
+<script src="js/stats.js"></script>
+</body>
+</html>

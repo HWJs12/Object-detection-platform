@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 运行时数据
+data/app.db
+data/app.db-wal
+data/app.db-shm
+data/uploads/*
+data/results/*
+
+# 模型权重不入库
+models/*.pt

@@ -1,0 +1,21 @@
+train: /slurm/home/huangwenjie/hwj_yolov11/ultralytics-main/ultralytics-main/ultralytics/cfg/datasets/data2/train/images
+val: /slurm/home/huangwenjie/hwj_yolov11/ultralytics-main/ultralytics-main/ultralytics/cfg/datasets/data2/valid/images
+
+nc: 5
+names:
+  0: hd
+  1: hx
+  2: hs
+  3: sb
+  4: other
+
+
+# train: /slurm/home/huangwenjie/hwj_yolov11/ultralytics-main/ultralytics-main/ultralytics/cfg/datasets/data2/train/images
+# val: /slurm/home/huangwenjie/hwj_yolov11/ultralytics-main/ultralytics-main/ultralytics/cfg/datasets/data2/valid/images
+
+# names:
+#   0: hd
+#   1: hx
+#   2: hs
+#   3: sb
+#   4: other

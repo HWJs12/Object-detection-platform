@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>检测记录 - 水下海洋生物目标检测与分析系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-inner">
+        <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+        <nav>
+            <a href="index.html">首页</a>
+            <a href="detect_image.html">图片检测</a>
+            <a href="detect_video.html">视频检测</a>
+            <a href="records.html">检测记录</a>
+            <a href="stats.html">数据统计</a>
+        </nav>
+        <span class="nav-status" id="nav-status">加载中...</span>
+    </div>
+</header>
+
+<div class="container">
+    <h1 class="page-title">检测记录</h1>
+    <p class="page-desc">查看历史检测记录, 支持按类型 / 文件名 / 日期筛选</p>
+
+    <div id="alert-box"></div>
+
+    <div class="card">
+        <h2 class="card-title">筛选条件</h2>
+        <div class="row">
+            <div class="field">
+                <label>检测类型</label>
+                <select id="filter-type">
+                    <option value="">全部</option>
+                    <option value="image">图片</option>
+                    <option value="video">视频</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>文件名关键字</label>
+                <input type="text" id="filter-keyword" placeholder="如 fish01.jpg">
+            </div>
+            <div class="field">
+                <label>起始日期</label>
+                <input type="date" id="filter-from">
+            </div>
+            <div class="field">
+                <label>结束日期</label>
+                <input type="date" id="filter-to">
+            </div>
+            <button class="btn" id="btn-search" style="margin-top:18px;">查询</button>
+            <button class="btn btn-secondary" id="btn-clear" style="margin-top:18px;">重置</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">
+            记录列表
+            <span class="small muted" id="record-count"></span>
+        </h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>ID</th><th>检测时间</th><th>文件名称</th><th>类型</th>
+                    <th>目标数量</th><th>耗时 / 帧数</th><th>操作</th>
+                </tr>
+                </thead>
+                <tbody id="records-body">
+                <tr><td colspan="7" class="empty">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+    </div>
+</div>
+
+<div id="modal-root"></div>
+
+<script src="js/common.js"></script>
+<script src="js/records.js"></script>
+</body>
+</html>

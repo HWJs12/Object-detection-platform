@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>首页 - 水下海洋生物目标检测与分析系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-inner">
+        <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+        <nav>
+            <a href="index.html">首页</a>
+            <a href="detect_image.html">图片检测</a>
+            <a href="detect_video.html">视频检测</a>
+            <a href="records.html">检测记录</a>
+            <a href="stats.html">数据统计</a>
+        </nav>
+        <span class="nav-status" id="nav-status">加载中...</span>
+    </div>
+</header>
+
+<div class="container">
+    <h1 class="page-title">系统概览</h1>
+    <p class="page-desc">基于GSCNet的海洋检测平台</p>
+
+    <div id="alert-box"></div>
+
+    <div class="grid-4">
+        <div class="stat-card">
+            <div class="label">今日检测次数</div>
+            <div class="value" id="stat-today">-</div>
+            <div class="extra" id="stat-today-objects">今日检出目标 0 个</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">累计检测次数</div>
+            <div class="value" id="stat-total">-</div>
+            <div class="extra" id="stat-total-detail">图片 0 次 / 视频 0 次</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">累计检测目标总数</div>
+            <div class="value" id="stat-objects">-</div>
+            <div class="extra">所有检测记录中识别出的目标累计</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">已识别类别数</div>
+            <div class="value" id="stat-classes">-</div>
+            <div class="extra" id="stat-device">推理设备: 检测中</div>
+        </div>
+    </div>
+
+    <div class="grid-2" style="margin-top:18px;">
+        <div class="card">
+            <h2 class="card-title">功能入口</h2>
+            <div class="row">
+                <a class="btn" href="detect_image.html">图片检测</a>
+                <a class="btn btn-secondary" href="detect_video.html">视频检测</a>
+                <a class="btn btn-secondary" href="records.html">检测记录</a>
+                <a class="btn btn-secondary" href="stats.html">数据统计</a>
+            </div>
+            <p class="small muted" style="margin-top:14px;">
+                使用流程: 上传图片或视频 → 系统调用 GSCNet 模型推理 → 显示检测框与置信度 →
+                自动统计目标数量 → 保存记录并生成统计图表。
+            </p>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">模型与运行信息</h2>
+            <table>
+                <tbody id="model-info-body">
+                    <tr><td colspan="2" class="empty">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">
+            最近检测记录
+            <a class="btn btn-sm btn-secondary" href="records.html">查看全部</a>
+        </h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>时间</th><th>文件名</th><th>类型</th><th>目标数量</th><th>耗时</th>
+                </tr>
+                </thead>
+                <tbody id="recent-body">
+                <tr><td colspan="5" class="empty">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/home.js"></script>
+</body>
+</html>

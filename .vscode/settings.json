@@ -1,0 +1,7 @@
+{
+    // 项目专用虚拟环境(依赖已装齐: torch/ultralytics/fastapi 等)
+    // 如路径变化, 在 Trae/VSCode 中按 Ctrl+Shift+P -> "Python: 选择解释器" 手动选择
+    "python.defaultInterpreterPath": "C:\\Users\\12503\\.workbuddy\\binaries\\python\\envs\\underwater\\Scripts\\python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.analysis.extraPaths": ["${workspaceFolder}"]
+}

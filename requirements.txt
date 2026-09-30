@@ -1,0 +1,19 @@
+# 基于深度学习的水下海洋生物目标检测与分析系统 - 依赖清单
+# 说明: torch / torchvision 为 CPU 版, 需使用 PyTorch 官方 CPU 源单独安装(见 README)
+
+# ---------- Web 框架 ----------
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+websockets>=12.0
+
+# ---------- 深度学习 / 推理 ----------
+ultralytics>=8.3.0
+opencv-python>=4.9.0
+numpy>=1.26.0
+Pillow>=10.0.0
+
+# ---------- 配置 / 工具 ----------
+PyYAML>=6.0
+requests>=2.31.0
+aiofiles>=24.1.0
