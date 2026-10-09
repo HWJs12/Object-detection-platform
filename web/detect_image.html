@@ -16,6 +16,8 @@
             <a href="detect_video.html">视频检测</a>
             <a href="records.html">检测记录</a>
             <a href="stats.html">数据统计</a>
+            <a href="system.html">系统状态</a>
+            <a href="api_docs.html">接口文档</a>
         </nav>
         <span class="nav-status" id="nav-status">加载中...</span>
     </div>
@@ -23,7 +25,7 @@
 
 <div class="container">
     <h1 class="page-title">图片检测</h1>
-    <p class="page-desc">上传水下图片, 系统调用 GSCNet 模型推理并绘制检测框</p>
+    <p class="page-desc">上传一张或多张水下图片, 系统调用 GSCNet 推理, 检测框支持按类别筛选</p>
 
     <div id="alert-box"></div>
 
@@ -31,9 +33,10 @@
         <h2 class="card-title">上传图片</h2>
         <div class="upload-area" id="upload-area">
             <div class="icon">🖼️</div>
-            <div>点击选择图片, 或将图片拖拽到此处</div>
-            <div class="hint">支持 JPG / PNG / BMP / WEBP / TIFF, 单文件不超过 <span id="max-size">300</span>MB</div>
-            <input type="file" id="file-input" accept="image/*" hidden>
+            <div>点击选择图片(支持多选), 或将图片拖拽到此处</div>
+            <div class="hint">支持 JPG / PNG / BMP / WEBP / TIFF, 单文件不超过
+                <span id="max-size">300</span>MB, 单次最多 <span id="max-batch">20</span> 张</div>
+            <input type="file" id="file-input" accept="image/*" multiple hidden>
         </div>
         <div class="file-name hidden" id="file-name"></div>
 
@@ -49,62 +52,51 @@
         </div>
     </div>
 
-    <div class="grid-2">
-        <div class="card">
-            <h2 class="card-title">原始图片</h2>
-            <div class="image-box">
-                <div class="placeholder" id="origin-placeholder">尚未选择图片</div>
-                <img id="origin-img" class="hidden" alt="原始图片">
-            </div>
-        </div>
-        <div class="card">
-            <h2 class="card-title">检测结果</h2>
-            <div class="image-box">
-                <div class="placeholder" id="result-placeholder">检测完成后在此显示带检测框的结果图</div>
-                <img id="result-img" class="hidden" alt="检测结果">
-            </div>
+    <div class="card hidden" id="summary-card">
+        <h2 class="card-title">检测汇总</h2>
+        <div class="grid-4">
+            <div class="stat-card"><div class="label">图片数量</div><div class="value" id="sum-images">0</div></div>
+            <div class="stat-card"><div class="label">检出目标总数</div><div class="value" id="sum-objects">0</div></div>
+            <div class="stat-card"><div class="label">检测成功 / 失败</div><div class="value" id="sum-ok" style="font-size:22px;">0 / 0</div></div>
+            <div class="stat-card"><div class="label">总耗时</div><div class="value" id="sum-cost" style="font-size:22px;">0 ms</div></div>
         </div>
     </div>
 
-    <div class="card">
-        <h2 class="card-title">检测统计</h2>
-        <div class="grid-3">
-            <div class="stat-card">
-                <div class="label">目标总数</div>
-                <div class="value" id="stat-total">0</div>
-            </div>
-            <div class="stat-card">
-                <div class="label">推理耗时</div>
-                <div class="value" id="stat-cost">0<small style="font-size:13px;"> ms</small></div>
-            </div>
-            <div class="stat-card">
-                <div class="label">图片尺寸</div>
-                <div class="value" id="stat-size" style="font-size:18px;">-</div>
-            </div>
-        </div>
-
-        <h3 style="font-size:14px;margin:18px 0 8px;">各类别目标数量</h3>
-        <div class="tag-list" id="class-tags">
-            <span class="muted small">暂无数据</span>
-        </div>
+    <div class="card hidden" id="filter-card">
+        <h2 class="card-title">类别筛选</h2>
+        <div class="filter-chips" id="class-filter"></div>
+        <p class="small muted" style="margin:10px 0 0;">
+            点击类别可隐藏 / 显示对应的检测框(仅影响画面显示, 不影响已保存的检测数据)
+        </p>
     </div>
 
-    <div class="card">
-        <h2 class="card-title">检测明细</h2>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                <tr>
-                    <th>#</th><th>类别</th><th>置信度</th><th>边界框 (x1, y1, x2, y2)</th><th>框尺寸</th>
-                </tr>
-                </thead>
-                <tbody id="detail-body">
-                <tr><td colspan="5" class="empty">暂无检测结果</td></tr>
-                </tbody>
-            </table>
-        </div>
+    <div class="card hidden" id="results-card">
+        <h2 class="card-title">
+            检测结果
+            <span class="small muted" id="result-hint" style="margin-right:auto;padding-left:10px;">
+                点击任意图片可查看大图与检测明细
+            </span>
+            <button class="btn btn-sm" id="btn-report" disabled>
+                下载检测报告 (PDF)
+            </button>
+            <label class="export-toggle" title="勾选后可把本次检测结果导出为训练用标注数据">
+                <input type="checkbox" id="chk-export-tags">
+                导出标签
+            </label>
+            <span class="row hidden" id="export-format-row">
+                <select id="export-format" class="select-sm">
+                    <option value="csv">CSV 标注表</option>
+                    <option value="coco">COCO JSON</option>
+                    <option value="yolo">YOLO TXT (zip)</option>
+                </select>
+                <button class="btn btn-sm btn-secondary" id="btn-export-tags" disabled>下载</button>
+            </span>
+        </h2>
+        <div class="result-grid" id="result-grid"></div>
     </div>
 </div>
+
+<div id="modal-root"></div>
 
 <script src="js/common.js"></script>
 <script src="js/image.js"></script>

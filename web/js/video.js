@@ -1,12 +1,16 @@
-/* 视频检测页: 上传 -> WebSocket 实时逐帧检测(支持暂停/继续/运行中调阈值) */
+/* 视频检测页: 上传 -> WebSocket 实时逐帧检测(暂停/继续/调阈值/类别筛选) */
 
 let currentFile = null;
 let socket = null;
 let currentTaskId = null;
 let paused = false;
 let peak = 0;
-let pendingFrame = false;   // 上一帧是否渲染完成, 未完成时丢弃新帧避免堆积
+let pendingFrame = false;      // 上一帧是否渲染完成, 未完成时丢弃新帧避免堆积
+let renderedMsg = null;        // 最近一次"已渲染"的帧数据(供筛选重绘使用)
+let lastFilterSignature = '';
 const canvasImage = new Image();
+const hiddenClasses = new Set();   // 被隐藏的类别(仅影响显示)
+const knownClasses = new Map();    // class_name -> class_id
 
 /* ---------------- 按钮状态机: idle | running | paused ---------------- */
 function setControls(state) {
@@ -78,13 +82,20 @@ function bindSlider() {
 
 function resetLiveStats() {
     peak = 0;
+    renderedMsg = null;
+    hiddenClasses.clear();
+    knownClasses.clear();
+    lastFilterSignature = '';
+    $('#class-filter').innerHTML = '<span class="muted small">开始检测后可在此按类别筛选检测框</span>';
     $('#live-total').textContent = '0';
+    $('#live-unique').textContent = '0';
     $('#live-fps').textContent = '0.0';
     $('#live-time').textContent = '0.0 s';
     $('#live-peak').textContent = '0';
     $('#live-tags').innerHTML = '<span class="muted small">暂无数据</span>';
     $('#progress-bar').style.width = '0%';
     $('#progress-text').textContent = '';
+    $('#btn-download-video').classList.add('hidden');
 }
 
 /* ---------------- 开始检测 ---------------- */
@@ -157,25 +168,27 @@ function openSocket(taskId) {
 }
 
 function handleFrame(msg) {
-    // 渲染画面(丢弃未及时显示的帧, 保证实时性)
     if (!pendingFrame) {
         pendingFrame = true;
         canvasImage.onload = () => {
+            renderedMsg = msg;
             const canvas = $('#video-canvas');
-            if (canvas.width !== canvasImage.width) {
-                canvas.width = canvasImage.width;
-                canvas.height = canvasImage.height;
-            }
-            canvas.getContext('2d').drawImage(canvasImage, 0, 0);
+            drawDetections(canvas, canvasImage, msg.detections,
+                { hidden: hiddenClasses, showId: true });
             canvas.classList.remove('hidden');
             $('#stage-placeholder').classList.add('hidden');
             pendingFrame = false;
+            updateClassFilter(msg.detections);
         };
         canvasImage.onerror = () => { pendingFrame = false; };
         canvasImage.src = 'data:image/jpeg;base64,' + msg.image;
+    } else {
+        // 该帧未及时渲染被丢弃, 但类别信息仍需更新
+        updateClassFilter(msg.detections);
     }
 
     $('#live-total').textContent = msg.total;
+    $('#live-unique').textContent = msg.unique ?? 0;
     $('#live-fps').textContent = msg.fps.toFixed(1);
     $('#live-time').textContent = msg.timestamp.toFixed(1) + ' s';
     peak = Math.max(peak, msg.total);
@@ -191,11 +204,73 @@ function handleFrame(msg) {
         ` | 阈值 ${msg.conf_threshold}`;
 }
 
+/* ---------------- 类别筛选 ---------------- */
+function updateClassFilter(detections) {
+    let changed = false;
+    (detections || []).forEach((d) => {
+        if (!knownClasses.has(d.class_name)) {
+            knownClasses.set(d.class_name, d.class_id);
+            changed = true;
+        }
+    });
+    const signature = Array.from(knownClasses.keys()).sort().join('|');
+    if (!changed && signature === lastFilterSignature) return;
+    lastFilterSignature = signature;
+
+    const container = $('#class-filter');
+    if (!knownClasses.size) {
+        container.innerHTML = '<span class="muted small">当前帧未检出目标</span>';
+        return;
+    }
+    container.innerHTML = '<span class="chips-label">类别筛选:</span>' +
+        Array.from(knownClasses.entries()).map(([name, id]) => {
+            const active = !hiddenClasses.has(name);
+            return `<span class="chip ${active ? 'active' : ''}" data-class="${escapeHtml(name)}">
+                <span class="dot" style="background:${classColor(id)}"></span>${escapeHtml(name)}
+            </span>`;
+        }).join('');
+
+    $$('.chip', container).forEach((chip) => {
+        chip.addEventListener('click', () => {
+            const name = chip.dataset.class;
+            if (hiddenClasses.has(name)) {
+                hiddenClasses.delete(name);
+                chip.classList.add('active');
+            } else {
+                hiddenClasses.add(name);
+                chip.classList.remove('active');
+            }
+            redrawCurrentFrame();
+        });
+    });
+}
+
+/** 筛选变化后按当前已渲染帧重绘检测框 */
+function redrawCurrentFrame() {
+    if (!renderedMsg || !canvasImage.complete) return;
+    drawDetections($('#video-canvas'), canvasImage, renderedMsg.detections,
+        { hidden: hiddenClasses, showId: true });
+}
+
 function handleDone(msg) {
     const s = msg.summary;
     $('#progress-bar').style.width = '100%';
-    $('#progress-text').textContent = '检测完成, 结果已保存到数据库';
+    $('#progress-text').textContent = msg.result_video_url
+        ? '检测完成: 结果已保存, 结果视频已导出'
+        : '检测完成, 结果已保存到数据库';
     $('#summary-card').classList.remove('hidden');
+
+    // 结果视频下载入口
+    const dl = $('#btn-download-video');
+    if (msg.result_video_url) {
+        dl.href = msg.result_video_url;
+        dl.classList.remove('hidden');
+    } else {
+        dl.classList.add('hidden');
+    }
+
+    $('#sum-unique').textContent = s.unique_objects ?? 0;
+    $('#sum-detections').textContent = fmtNumber(s.total_detections ?? 0);
     $('#sum-frames').textContent = `${s.frames_processed} / ${s.total_frames}`;
     $('#sum-fps').textContent = s.avg_fps.toFixed(1);
     $('#sum-peak').textContent = s.peak_objects;
@@ -204,7 +279,7 @@ function handleDone(msg) {
         ? s.counts.map((c) => `<span class="tag">${escapeHtml(c.class_name)}: <b>${c.count}</b></span>`).join('')
         : '<span class="muted small">全程未检出目标</span>';
     setControls('idle');
-    toast('视频检测完成', 'success');
+    toast(`视频检测完成: 唯一目标 ${s.unique_objects ?? 0} 个`, 'success');
 }
 
 function handleError(msg) {

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import dataclass, asdict
@@ -18,8 +19,15 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from app.utils.exceptions import InferenceError, ModelLoadError, ModelNotConfiguredError
+from app.utils.exceptions import (
+    AppError,
+    InferenceError,
+    ModelLoadError,
+    ModelNotConfiguredError,
+)
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,14 +38,18 @@ class Detection:
     class_name: str
     confidence: float
     bbox: List[float]  # [x1, y1, x2, y2]
+    track_id: Optional[int] = None  # 目标跟踪 ID(仅视频跟踪推理时存在)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data = {
             "class_id": self.class_id,
             "class_name": self.class_name,
             "confidence": round(float(self.confidence), 4),
             "bbox": [round(float(v), 2) for v in self.bbox],
         }
+        if self.track_id is not None:
+            data["track_id"] = int(self.track_id)
+        return data
 
 
 class YoloEngine:
@@ -49,6 +61,16 @@ class YoloEngine:
         self._names: Dict[int, str] = {}
         self._load_lock = threading.Lock()
         self._infer_lock = threading.Lock()
+        # 目标跟踪使用独立模型实例: ultralytics 的 tracker 回调会注册在 model 上,
+        # 与图片 predict 共用同一实例会导致轨迹状态被逐帧图片推理污染, 故隔离。
+        self._track_model = None
+        self._track_load_lock = threading.Lock()
+        self._track_lock = threading.Lock()
+        # 跟踪槽位锁(非阻塞): 全局同一时刻只允许一个视频任务使用跟踪。
+        # tracker 状态挂在共享的 _track_model 上, 若两个视频任务并发使用,
+        # 后者 reset_tracker() 会清空前者未结束的轨迹 -> track_id 重新编号 ->
+        # 唯一目标数重复累加, 统计结果静默出错。故在此层强制串行。
+        self._track_slot = threading.Lock()
 
     # ---------------- 模型加载 ----------------
     def load(self, force: bool = False):
@@ -124,6 +146,97 @@ class YoloEngine:
 
         return self._parse(results)
 
+    # ---------------- 目标跟踪(视频专用) ----------------
+    def _load_track_model(self):
+        """懒加载跟踪专用模型实例(与图片推理实例隔离, 避免轨迹状态互相污染)。"""
+        with self._track_load_lock:
+            if self._track_model is not None:
+                return self._track_model
+            path = settings.model_path_abs
+            if not path or not path.exists():
+                raise ModelNotConfiguredError(f"模型权重文件不存在: {path}")
+            try:
+                from ultralytics import YOLO
+                self._track_model = YOLO(str(path))
+            except Exception as exc:
+                raise ModelLoadError(f"跟踪模型加载失败: {exc}")
+            return self._track_model
+
+    def reset_tracker(self) -> None:
+        """清空跟踪状态(新的视频任务开始前调用, 轨迹 ID 从 1 重新开始)。"""
+        model = self._track_model
+        if model is None:
+            return
+        try:
+            model.predictor = None  # 下次 track 调用会重建 predictor 与 tracker
+        except Exception:
+            pass
+
+    def acquire_track_slot(self) -> None:
+        """独占获取跟踪推理槽位(非阻塞)。
+
+        Raises:
+            AppError: 已有视频任务正在使用跟踪推理。tracker 是共享有状态资源,
+                并发会导致轨迹 ID 串号、唯一目标数统计失真, 故必须拒绝而非排队。
+        """
+        if not self._track_slot.acquire(blocking=False):
+            raise AppError(
+                "已有视频检测任务正在运行。目标跟踪状态为全局独占资源, "
+                "并发会导致目标 ID 串号与统计失真, 请等待当前任务结束后再开始新的检测。",
+                code="TRACK_BUSY",
+                status_code=409,
+            )
+
+    def release_track_slot(self) -> None:
+        """释放跟踪推理槽位, 并清空残余轨迹状态避免影响下一次检测。"""
+        try:
+            self.reset_tracker()
+        finally:
+            try:
+                self._track_slot.release()
+            except RuntimeError:
+                pass  # 非本线程持有的锁, 忽略
+
+    def track_busy(self) -> bool:
+        """当前是否有视频任务正在独占跟踪推理。"""
+        return self._track_slot.locked()
+
+    def track(self, image: np.ndarray, conf: Optional[float] = None,
+              iou: Optional[float] = None, imgsz: Optional[int] = None,
+              tracker: Optional[str] = None) -> List[Detection]:
+        """带目标跟踪的单帧推理, 返回带 track_id 的 Detection 列表。
+
+        跨帧保持轨迹(persist=True)。若跟踪器不可用(如缺少 lap 依赖),
+        自动回退为普通推理, 保证视频检测功能不中断。
+        """
+        if image is None or getattr(image, "size", 0) == 0:
+            raise InferenceError("图像内容为空, 无法推理")
+
+        model = self._load_track_model()
+        conf = settings.conf_threshold if conf is None else conf
+        iou = settings.iou_threshold if iou is None else iou
+        imgsz = settings.imgsz if imgsz is None else imgsz
+        tracker = tracker or settings.tracker
+
+        try:
+            with self._track_lock:  # 跟踪状态有状态性, 必须串行
+                results = model.track(
+                    source=image,
+                    persist=True,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    device=settings.device_resolved,
+                    max_det=settings.max_det,
+                    tracker=tracker,
+                    verbose=False,
+                )
+        except Exception as exc:
+            logger.warning("目标跟踪不可用, 已回退为逐帧检测: %s", exc)
+            return self.predict(image, conf=conf, iou=iou, imgsz=imgsz)
+
+        return self._parse(results)
+
     def _parse(self, results) -> List[Detection]:
         """解析 ultralytics 结果为 Detection 列表(类别名取自模型)。"""
         detections: List[Detection] = []
@@ -140,8 +253,15 @@ class YoloEngine:
         confs = boxes.conf.cpu().numpy() if hasattr(boxes.conf, "cpu") else np.asarray(boxes.conf)
         clses = boxes.cls.cpu().numpy() if hasattr(boxes.cls, "cpu") else np.asarray(boxes.cls)
 
+        # 跟踪推理时 boxes.id 为 tensor; 普通推理时为 None
+        ids_attr = getattr(boxes, "id", None)
+        if ids_attr is None:
+            track_ids: List[Any] = [None] * len(xyxy)
+        else:
+            track_ids = ids_attr.cpu().numpy() if hasattr(ids_attr, "cpu") else np.asarray(ids_attr)
+
         name_map = settings.class_name_map or {}
-        for (x1, y1, x2, y2), conf, cls in zip(xyxy, confs, clses):
+        for (x1, y1, x2, y2), conf, cls, tid in zip(xyxy, confs, clses, track_ids):
             cid = int(cls)
             raw_name = str(names.get(cid, f"class_{cid}"))
             detections.append(
@@ -150,6 +270,7 @@ class YoloEngine:
                     class_name=str(name_map.get(raw_name, raw_name)),
                     confidence=float(conf),
                     bbox=[float(x1), float(y1), float(x2), float(y2)],
+                    track_id=None if tid is None else int(tid),
                 )
             )
         return detections

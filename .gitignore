@@ -4,12 +4,17 @@ __pycache__/
 *.pyc
 *.pyo
 
-# 运行时数据
-data/app.db
-data/app.db-wal
-data/app.db-shm
-data/uploads/*
-data/results/*
+# 运行时数据（整目录忽略：数据库 / 上传 / 结果 / 回收站 / 审计日志）
+data/
+!data/.gitkeep
 
 # 模型权重不入库
 models/*.pt
+
+# 测评与临时产物
+tools/_qa_*.py
+docs/_pid_check.txt
+docs/architecture-quality.md
+docs/quality-assessment.md
+docs/screenshots/
+*.bak.html

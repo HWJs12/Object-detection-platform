@@ -38,13 +38,16 @@ def _result_url(path: Path) -> str:
 
 
 def detect_image_bytes(image_bytes: bytes, source_name: str,
-                       conf: Optional[float] = None) -> Dict[str, Any]:
+                       conf: Optional[float] = None,
+                       saved_name: Optional[str] = None) -> Dict[str, Any]:
     """执行图片检测全流程。
 
     Args:
         image_bytes: 图片原始字节
-        source_name: 原始文件名
+        source_name: 原始文件名(用户视角)
         conf: 置信度阈值, 为空时使用全局配置
+        saved_name: 服务器磁盘上的源图文件名。入库后该文件受清理器保护,
+            否则源图会变成"无记录引用"的孤儿文件被保留策略误删。
 
     Returns:
         检测结果字典(含结果图 URL / 统计 / 明细)
@@ -86,10 +89,12 @@ def detect_image_bytes(image_bytes: bytes, source_name: str,
     record_id = dao.insert_detection({
         "task_type": "image",
         "source_name": source_name,
-        "saved_name": result_name,
-        "result_image": result_path.name,
+        "saved_name": saved_name or "",      # 磁盘上的源图文件名(去重后的名字)
+        "result_image": result_path.name,    # 带检测框的结果图文件名
         "created_at": created_at,
         "total_objects": len(detections),
+        "unique_objects": len(detections),
+        "total_detections": len(detections),
         "image_width": width,
         "image_height": height,
         "inference_ms": round(infer_ms, 1),
@@ -107,6 +112,7 @@ def detect_image_bytes(image_bytes: bytes, source_name: str,
         "width": width,
         "height": height,
         "total": len(detections),
+        "unique_objects": len(detections),
         "counts": counts,
         "detections": [d.to_dict() for d in detections],
         "inference_ms": round(infer_ms, 1),

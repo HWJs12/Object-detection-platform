@@ -16,6 +16,8 @@
             <a href="detect_video.html">视频检测</a>
             <a href="records.html">检测记录</a>
             <a href="stats.html">数据统计</a>
+            <a href="system.html">系统状态</a>
+            <a href="api_docs.html">接口文档</a>
         </nav>
         <span class="nav-status" id="nav-status">加载中...</span>
     </div>
@@ -64,12 +66,12 @@
             <table>
                 <thead>
                 <tr>
-                    <th>ID</th><th>检测时间</th><th>文件名称</th><th>类型</th>
+                    <th>ID</th><th>预览</th><th>检测时间</th><th>文件名称</th><th>类型</th>
                     <th>目标数量</th><th>耗时 / 帧数</th><th>操作</th>
                 </tr>
                 </thead>
                 <tbody id="records-body">
-                <tr><td colspan="7" class="empty">加载中...</td></tr>
+                <tr><td colspan="8" class="empty">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -79,6 +81,7 @@
 
 <div id="modal-root"></div>
 
+<script src="vendor/chart.js"></script>
 <script src="js/common.js"></script>
 <script src="js/records.js"></script>
 </body>

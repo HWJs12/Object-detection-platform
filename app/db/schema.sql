@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS detections (
     source_name       TEXT    NOT NULL,                  -- 原始文件名
     saved_name        TEXT,                              -- 服务器保存名
     result_image      TEXT,                              -- 结果图相对路径(图片检测)
+    result_video      TEXT,                              -- 结果视频文件名(视频检测, 带检测框)
     created_at        TEXT    NOT NULL,                  -- YYYY-MM-DD HH:MM:SS
     total_objects     INTEGER NOT NULL DEFAULT 0,        -- 目标总数
     image_width       INTEGER,
@@ -19,6 +20,8 @@ CREATE TABLE IF NOT EXISTS detections (
     avg_fps           REAL,                              -- 平均处理速度(视频)
     duration_sec      REAL,                              -- 视频时长(秒)
     conf_threshold    REAL,                              -- 本次使用的置信度阈值
+    unique_objects    INTEGER NOT NULL DEFAULT 0,        -- 唯一目标数(目标跟踪跨帧去重)
+    total_detections  INTEGER NOT NULL DEFAULT 0,        -- 检测框累计数(所有帧求和)
     status            TEXT    NOT NULL DEFAULT 'success',-- success | failed
     message           TEXT                               -- 备注 / 错误信息
 );

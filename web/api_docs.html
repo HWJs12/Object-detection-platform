@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>接口文档 - 水下海洋生物目标检测与分析系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-inner">
+        <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+        <nav>
+            <a href="index.html">首页</a>
+            <a href="detect_image.html">图片检测</a>
+            <a href="detect_video.html">视频检测</a>
+            <a href="records.html">检测记录</a>
+            <a href="stats.html">数据统计</a>
+            <a href="system.html">系统状态</a>
+            <a href="api_docs.html">接口文档</a>
+        </nav>
+        <span class="nav-status" id="nav-status">加载中...</span>
+    </div>
+</header>
+
+<div class="container">
+    <h1 class="page-title">接口文档</h1>
+    <p class="page-desc">
+        本页从服务端 <span class="mono">/openapi.json</span> 实时读取, 与代码保持同步
+        <span class="row" style="float:right;">
+            <span class="btn-labeled">
+                <span class="btn-labeled-tip">在线调试控制台</span>
+                <a class="btn btn-sm btn-secondary" href="/docs" target="_blank" rel="noopener">Swagger UI</a>
+            </span>
+            <span class="btn-labeled">
+                <span class="btn-labeled-tip">只读版接口手册</span>
+                <a class="btn btn-sm btn-secondary" href="/redoc" target="_blank" rel="noopener">ReDoc</a>
+            </span>
+            <span class="btn-labeled">
+                <span class="btn-labeled-tip">复制接口根地址</span>
+                <button class="btn btn-sm" id="btn-copy-base">复制服务地址</button>
+            </span>
+        </span>
+    </p>
+
+    <div id="alert-box"></div>
+
+    <div class="grid-4">
+        <div class="stat-card">
+            <div class="label">接口总数</div>
+            <div class="value" id="api-total">-</div>
+            <div class="extra">含 WebSocket 端点</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">服务地址</div>
+            <div class="value mono" style="font-size:15px;" id="api-base">-</div>
+            <div class="extra">当前访问地址即接口根路径</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">接口分组</div>
+            <div class="value" id="api-tags">-</div>
+            <div class="extra">按功能模块划分</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">响应格式</div>
+            <div class="value" style="font-size:15px;">JSON</div>
+            <div class="extra">统一 {success, code, message, data}</div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:18px;">
+        <h2 class="card-title">快速开始</h2>
+        <p class="small muted" style="margin-top:0;">
+            所有接口返回统一结构: <span class="mono">{ "success": bool, "code": "...", "message": "...", "data": {...} }</span>。
+            失败时 <span class="mono">success=false</span> 并在 <span class="mono">message</span> 中给出可读原因。
+        </p>
+
+        <div class="grid-2">
+            <div>
+                <h3 class="small muted" style="margin:0 0 6px;">cURL 示例 — 图片检测</h3>
+                <pre class="code-block" id="sample-curl">curl -X POST "http://127.0.0.1:8000/api/detect/image" ^
+     -F "file=@photo.jpg"</pre>
+                <button class="btn btn-sm btn-secondary" data-copy="#sample-curl">复制</button>
+            </div>
+            <div>
+                <h3 class="small muted" style="margin:0 0 6px;">Python 示例 — 图片检测</h3>
+                <pre class="code-block" id="sample-python">import requests
+
+BASE = "http://127.0.0.1:8000"
+
+with open("photo.jpg", "rb") as fp:
+    resp = requests.post(
+        f"{BASE}/api/detect/image",
+        files={"file": fp},          # 注意: 字段名是 file(单数)
+    )
+
+data = resp.json()
+if data["success"]:
+    print("检出目标:", data["data"]["total"])
+    for det in data["data"]["detections"]:
+        print(det["class_name"], round(det["confidence"], 3))</pre>
+                <button class="btn btn-sm btn-secondary" data-copy="#sample-python">复制</button>
+            </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:14px;">
+            <div>
+                <h3 class="small muted" style="margin:0 0 6px;">cURL 示例 — 记录与统计</h3>
+                <pre class="code-block" id="sample-curl2">:: 分页查询记录
+curl "http://127.0.0.1:8000/api/records?page=1&page_size=10"
+
+:: 生态多样性指标(全部历史)
+curl "http://127.0.0.1:8000/api/stats/ecology?days=0"
+
+:: 系统状态快照
+curl "http://127.0.0.1:8000/api/system/status"</pre>
+                <button class="btn btn-sm btn-secondary" data-copy="#sample-curl2">复制</button>
+            </div>
+            <div>
+                <h3 class="small muted" style="margin:0 0 6px;">Python 示例 — 批量图片检测</h3>
+                <pre class="code-block" id="sample-python2">import requests
+
+BASE = "http://127.0.0.1:8000"
+files = [
+    ("files", open("a.jpg", "rb")),   # 批量接口字段名是 files(复数)
+    ("files", open("b.jpg", "rb")),
+]
+resp = requests.post(f"{BASE}/api/detect/images", files=files, data={"conf": 0.25})
+result = resp.json()["data"]
+print(f"成功 {result['success_count']} / 失败 {result['failed_count']}")
+print("批次 record_ids:", result["record_ids"])</pre>
+                <button class="btn btn-sm btn-secondary" data-copy="#sample-python2">复制</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">
+            接口分组导航
+            <span class="row">
+                <button class="btn btn-sm btn-secondary" id="btn-expand">全部展开</button>
+                <button class="btn btn-sm btn-secondary" id="btn-collapse">全部收起</button>
+            </span>
+        </h2>
+        <div class="tag-list" id="group-nav"><span class="muted small">加载中...</span></div>
+    </div>
+
+    <div id="endpoint-container">
+        <div class="card"><div class="empty">正在从服务端读取接口定义...</div></div>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/api_docs.js"></script>
+</body>
+</html>

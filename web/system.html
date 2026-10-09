@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统状态 - 水下海洋生物目标检测与分析系统</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-inner">
+        <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+        <nav>
+            <a href="index.html">首页</a>
+            <a href="detect_image.html">图片检测</a>
+            <a href="detect_video.html">视频检测</a>
+            <a href="records.html">检测记录</a>
+            <a href="stats.html">数据统计</a>
+            <a href="system.html">系统状态</a>
+            <a href="api_docs.html">接口文档</a>
+        </nav>
+        <span class="nav-status" id="nav-status">加载中...</span>
+    </div>
+</header>
+
+<div class="container">
+    <h1 class="page-title">系统状态与运维</h1>
+    <p class="page-desc">
+        运行时指标 / 存储水位 / 任务队列 / 磁盘治理 —— 数据实时来自服务端, 无缓存
+        <span class="row" style="float:right;">
+            <span class="small muted"><span class="refresh-dot" id="refresh-dot"></span><span id="refresh-hint">自动刷新 10s</span></span>
+            <button class="btn btn-sm btn-secondary" id="btn-refresh">立即刷新</button>
+        </span>
+    </p>
+
+    <div id="alert-box"></div>
+
+    <div class="grid-4">
+        <div class="stat-card">
+            <div class="label">服务状态</div>
+            <div class="value" id="stat-service">-</div>
+            <div class="extra" id="stat-uptime">运行时长 -</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">受管存储占用</div>
+            <div class="value" id="stat-storage">-</div>
+            <div class="extra" id="stat-storage-detail">上传 - / 结果 -</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">可回收空间</div>
+            <div class="value" id="stat-reclaim">-</div>
+            <div class="extra" id="stat-reclaim-detail">孤儿 - / 回收站 -</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">驻留视频任务</div>
+            <div class="value" id="stat-tasks">-</div>
+            <div class="extra" id="stat-tasks-detail">跟踪槽位 -</div>
+        </div>
+    </div>
+
+    <div class="grid-2" style="margin-top:18px;">
+        <div class="card">
+            <h2 class="card-title">磁盘与存储水位</h2>
+
+            <div class="small muted">主机磁盘 (<span id="disk-free">-</span> 可用)</div>
+            <div class="meter" id="disk-meter"><span style="width:0%"></span></div>
+            <div class="legend">
+                <span><i style="background:var(--primary)"></i>已用 <b id="disk-used">-</b></span>
+                <span><i style="background:var(--surface-alt);border:1px solid var(--border)"></i>可用 <b id="disk-free2">-</b></span>
+                <span class="muted" id="disk-total">总容量 -</span>
+            </div>
+
+            <div class="small muted" style="margin-top:18px;">受管目录构成 (上传 / 结果 / 回收站)</div>
+            <div class="meter" id="storage-meter" style="height:14px;">
+                <span style="width:0%"></span>
+            </div>
+            <div class="legend">
+                <span><i style="background:var(--primary)"></i>上传中在用 <b id="st-uploads">-</b></span>
+                <span><i style="background:var(--accent)"></i>检测结果 <b id="st-results">-</b></span>
+                <span><i style="background:var(--warning)"></i>回收站 <b id="st-trash">-</b></span>
+            </div>
+            <div class="small muted" style="margin-top:12px;" id="storage-note">-</div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">运行指标</h2>
+            <table class="kv">
+                <tbody>
+                <tr><td>进程内存占用</td><td id="sys-mem">-</td></tr>
+                <tr><td>进程 CPU 占用</td><td id="sys-cpu">-</td></tr>
+                <tr><td>主机内存占用</td><td id="sys-host-mem">-</td></tr>
+                <tr><td>CPU 核心数</td><td id="sys-cores">-</td></tr>
+                <tr><td>数据库体积</td><td id="db-size">-</td></tr>
+                <tr><td>模型 / 设备</td><td id="sys-model">-</td></tr>
+                <tr><td>跟踪器</td><td id="sys-tracker">-</td></tr>
+                <tr><td>累计检测记录</td><td id="sys-records">-</td></tr>
+                <tr><td>累计检测目标</td><td id="sys-objects">-</td></tr>
+                <tr><td>服务器时间</td><td id="sys-time">-</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">
+            任务中心
+            <span class="row">
+                <button class="btn btn-sm btn-secondary" id="btn-reap">回收僵尸任务</button>
+            </span>
+        </h2>
+        <p class="small muted" style="margin-top:0;">
+            视频检测的目标跟踪是全局独占资源, 同一时刻仅允许一个任务运行;
+            上传后未开始检测的任务会在 TTL 到期后自动回收。
+        </p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr><th>任务 ID</th><th>文件</th><th>状态</th><th>进度</th><th>滞留时长</th></tr>
+                </thead>
+                <tbody id="task-body">
+                <tr><td colspan="5" class="empty">当前没有驻留任务</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">运维操作</h2>
+        <div class="op-grid">
+            <div class="op-card">
+                <h4>孤儿文件回收</h4>
+                <p>删除已无任何记录引用的文件(依据引用关系, 与保留期无关)。被回收文件先进回收站。</p>
+                <div class="row">
+                    <button class="btn btn-sm btn-secondary" data-op="orphan-dry">预检</button>
+                    <button class="btn btn-sm" data-op="orphan-run">立即回收</button>
+                </div>
+            </div>
+            <div class="op-card">
+                <h4>重复副本清理</h4>
+                <p>清理内容相同的历史文件副本。初始去重只能防新增, 存量重复需在此治理。</p>
+                <div class="row">
+                    <button class="btn btn-sm btn-secondary" data-op="dup-dry">预检</button>
+                    <button class="btn btn-sm" data-op="dup-run">立即清理</button>
+                </div>
+            </div>
+            <div class="op-card">
+                <h4>临时残留清理</h4>
+                <p>清除上传中断留下的过渡文件与 0 字节残骸, 这类文件永远不会被记录引用。</p>
+                <div class="row">
+                    <button class="btn btn-sm" data-op="tmp-run">立即清理</button>
+                </div>
+            </div>
+            <div class="op-card">
+                <h4>过期记录清理</h4>
+                <p>删除超过保留期(<b id="retention-days">-</b> 天)的记录及其独占文件, 同步回收磁盘。</p>
+                <div class="row">
+                    <button class="btn btn-sm btn-secondary" data-op="expire-dry">预检</button>
+                    <button class="btn btn-sm" data-op="expire-run">立即清理</button>
+                </div>
+            </div>
+            <div class="op-card">
+                <h4>数据库 WAL 合并</h4>
+                <p>把 WAL 内容合并回主库并截断, 释放 WAL 文件占用。长时间运行后建议执行。</p>
+                <div class="row">
+                    <button class="btn btn-sm" data-op="checkpoint">立即执行</button>
+                </div>
+            </div>
+            <div class="op-card">
+                <h4>回收站清空</h4>
+                <p>彻底删除回收站中滞留超 <b id="trash-days">7</b> 天的文件, 真正释放磁盘。</p>
+                <div class="row">
+                    <button class="btn btn-sm btn-secondary" data-op="trash-purge">清理过期</button>
+                    <button class="btn btn-sm btn-danger" data-op="trash-purge-all">全部清空</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">
+            回收站
+            <span class="row">
+                <span class="small muted" id="trash-summary">-</span>
+            </span>
+        </h2>
+        <p class="small muted" style="margin-top:0;">
+            删除记录时文件先进入回收站而非直接销毁, 误删可从下方恢复; 超过滞留窗口才会被彻底清除。
+        </p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr><th>原始文件名</th><th>大小</th><th>删除时间</th><th>滞留</th><th>操作</th></tr>
+                </thead>
+                <tbody id="trash-body">
+                <tr><td colspan="5" class="empty">回收站为空</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">最近治理记录</h2>
+        <p class="small muted" style="margin-top:0;">
+            来自 <span class="mono">data/cleanup.log</span> 的审计日志, 记录每次文件回收 / 恢复动作。
+        </p>
+        <div class="audit-list" id="audit-list">
+            <div class="empty">暂无记录</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">当前治理策略</h2>
+        <div class="grid-2">
+            <table class="kv"><tbody id="policy-body-left"></tbody></table>
+            <table class="kv"><tbody id="policy-body-right"></tbody></table>
+        </div>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/system.js"></script>
+</body>
+</html>

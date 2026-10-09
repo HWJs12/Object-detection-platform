@@ -13,9 +13,10 @@ from app.db.database import get_connection, transaction
 def insert_detection(data: Dict[str, Any]) -> int:
     """写入一条检测主记录, 返回自增 id。"""
     keys = [
-        "task_type", "source_name", "saved_name", "result_image", "created_at",
+        "task_type", "source_name", "saved_name", "result_image", "result_video", "created_at",
         "total_objects", "image_width", "image_height", "inference_ms",
         "frames_processed", "avg_fps", "duration_sec", "conf_threshold",
+        "unique_objects", "total_detections",
         "status", "message",
     ]
     cols = [k for k in keys if k in data]
@@ -200,13 +201,41 @@ def stats_overview() -> Dict[str, Any]:
     }
 
 
-def stats_trend(days: int = 7) -> List[Dict[str, Any]]:
-    """最近 N 天每日检测次数与目标数(缺失日期补 0)。"""
-    days = max(1, min(int(days), 60))
-    today = dt.date.today()
-    start = (today - dt.timedelta(days=days - 1)).isoformat()
+def stats_trend(days: int = 7, granularity: str = "day") -> List[Dict[str, Any]]:
+    """最近 N 个时间桶的检测次数与目标数(缺失桶补 0)。
 
-    rows = get_connection().execute(
+    granularity: "day" 按天 | "week" 按周(周一为起点)
+    """
+    days = max(1, min(int(days), 400))
+    granularity = "week" if str(granularity).lower() == "week" else "day"
+    conn = get_connection()
+    today = dt.date.today()
+
+    if granularity == "week":
+        this_monday = today - dt.timedelta(days=today.weekday())
+        start = this_monday - dt.timedelta(weeks=days - 1)
+        rows = conn.execute(
+            "SELECT date(created_at, 'weekday 0', '-6 days') AS bucket, "
+            "COUNT(*) AS count, COALESCE(SUM(total_objects), 0) AS objects "
+            "FROM detections WHERE date(created_at) >= date(?) "
+            "GROUP BY bucket",
+            (start.isoformat(),),
+        ).fetchall()
+        mapping = {r["bucket"]: dict(r) for r in rows}
+        result = []
+        for i in range(days):
+            day = start + dt.timedelta(weeks=i)
+            item = mapping.get(day.isoformat(), {"day": day.isoformat(), "count": 0, "objects": 0})
+            result.append({
+                "day": day.isoformat(),
+                "label": f"{day.strftime('%m-%d')} 周",
+                "count": int(item["count"]),
+                "objects": int(item["objects"]),
+            })
+        return result
+
+    start = (today - dt.timedelta(days=days - 1)).isoformat()
+    rows = conn.execute(
         "SELECT date(created_at) AS day, COUNT(*) AS count, "
         "COALESCE(SUM(total_objects), 0) AS objects "
         "FROM detections WHERE date(created_at) >= date(?) "
@@ -219,16 +248,82 @@ def stats_trend(days: int = 7) -> List[Dict[str, Any]]:
     for i in range(days):
         day = (today - dt.timedelta(days=days - 1 - i)).isoformat()
         item = mapping.get(day, {"day": day, "count": 0, "objects": 0})
-        result.append({"day": day, "count": int(item["count"]), "objects": int(item["objects"])})
+        result.append({
+            "day": day,
+            "label": day[5:],
+            "count": int(item["count"]),
+            "objects": int(item["objects"]),
+        })
     return result
 
 
-def stats_classes() -> List[Dict[str, Any]]:
-    """各分类累计目标数量(降序)。"""
+def stats_class_trend(days: int = 7) -> Dict[str, Any]:
+    """各类别随时间的检出数量(供多折线图使用)。"""
+    days = max(1, min(int(days), 60))
+    today = dt.date.today()
+    start = today - dt.timedelta(days=days - 1)
+
     rows = get_connection().execute(
-        "SELECT class_name, SUM(object_count) AS count FROM detection_class_stats "
-        "GROUP BY class_name ORDER BY count DESC"
+        "SELECT date(d.created_at) AS day, cs.class_name AS class_name, "
+        "SUM(cs.object_count) AS count "
+        "FROM detections d JOIN detection_class_stats cs ON cs.detection_id = d.id "
+        "WHERE date(d.created_at) >= date(?) "
+        "GROUP BY day, cs.class_name",
+        (start.isoformat(),),
     ).fetchall()
+
+    day_list = [(start + dt.timedelta(days=i)).isoformat() for i in range(days)]
+    index = {d: i for i, d in enumerate(day_list)}
+
+    series_map: Dict[str, List[int]] = {}
+    for r in rows:
+        name = r["class_name"]
+        bucket = series_map.setdefault(name, [0] * days)
+        idx = index.get(r["day"])
+        if idx is not None:
+            bucket[idx] = int(r["count"])
+
+    series = [
+        {"name": name, "data": data}
+        for name, data in sorted(series_map.items(), key=lambda kv: -sum(kv[1]))
+    ]
+    return {
+        "days": day_list,
+        "labels": [d[5:] for d in day_list],
+        "series": series,
+    }
+
+
+def stats_hourly() -> List[Dict[str, Any]]:
+    """全天 24 小时的检测次数分布(全部历史), 用于观察检测活跃时段。"""
+    rows = get_connection().execute(
+        "SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hour, COUNT(*) AS count "
+        "FROM detections GROUP BY hour"
+    ).fetchall()
+    mapping = {int(r["hour"]): int(r["count"]) for r in rows}
+    return [{"hour": h, "count": mapping.get(h, 0)} for h in range(24)]
+
+
+def stats_classes(days: int = 0) -> List[Dict[str, Any]]:
+    """各分类累计目标数量(降序)。
+
+    Args:
+        days: 仅统计最近 N 天; 0 或负数表示全部历史。
+    """
+    if days and int(days) > 0:
+        start = (dt.date.today() - dt.timedelta(days=int(days) - 1)).isoformat()
+        rows = get_connection().execute(
+            "SELECT cs.class_name, SUM(cs.object_count) AS count "
+            "FROM detections d JOIN detection_class_stats cs ON cs.detection_id = d.id "
+            "WHERE date(d.created_at) >= date(?) "
+            "GROUP BY cs.class_name ORDER BY count DESC",
+            (start,),
+        ).fetchall()
+    else:
+        rows = get_connection().execute(
+            "SELECT class_name, SUM(object_count) AS count FROM detection_class_stats "
+            "GROUP BY class_name ORDER BY count DESC"
+        ).fetchall()
     total = sum(r["count"] for r in rows) or 1
     return [
         {"class_name": r["class_name"], "count": int(r["count"]),

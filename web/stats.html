@@ -16,6 +16,8 @@
             <a href="detect_video.html">视频检测</a>
             <a href="records.html">检测记录</a>
             <a href="stats.html">数据统计</a>
+            <a href="system.html">系统状态</a>
+            <a href="api_docs.html">接口文档</a>
         </nav>
         <span class="nav-status" id="nav-status">加载中...</span>
     </div>
@@ -54,10 +56,12 @@
         <h2 class="card-title">
             检测趋势
             <span class="row">
-                <select id="trend-days" style="min-width:120px;">
-                    <option value="7">最近 7 天</option>
-                    <option value="14">最近 14 天</option>
-                    <option value="30">最近 30 天</option>
+                <select id="trend-days" style="min-width:130px;">
+                    <option value="7:day">最近 7 天</option>
+                    <option value="14:day">最近 14 天</option>
+                    <option value="30:day">最近 30 天</option>
+                    <option value="8:week">最近 8 周</option>
+                    <option value="12:week">最近 12 周</option>
                 </select>
             </span>
         </h2>
@@ -65,6 +69,75 @@
             <div class="chart-box"><canvas id="chart-bar"></canvas></div>
             <div class="chart-box"><canvas id="chart-line"></canvas></div>
         </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">各类别检出数量随时间变化</h2>
+        <div class="chart-box"><canvas id="chart-class-trend"></canvas></div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">
+            生态多样性指标
+            <span class="row">
+                <span class="small muted" id="ecology-scope">统计范围: 全部历史</span>
+                <select id="ecology-days" style="min-width:130px;">
+                    <option value="0" selected>全部历史</option>
+                    <option value="30">最近 30 天</option>
+                    <option value="14">最近 14 天</option>
+                    <option value="7">最近 7 天</option>
+                </select>
+            </span>
+        </h2>
+        <p class="small muted" style="margin-top:0;">
+            由各类别检出数量按生态学通用公式计算 (Shannon-Wiener / Simpson / Pielou / Margalef),
+            为纯统计结果, 不涉及模型推理。指标解读仅作辅助参考。
+        </p>
+
+        <div class="grid-4">
+            <div class="stat-card">
+                <div class="label">Shannon 多样性 H'</div>
+                <div class="value" id="eco-shannon">-</div>
+                <div class="extra" id="eco-shannon-note">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Simpson 优势度 D</div>
+                <div class="value" id="eco-simpson">-</div>
+                <div class="extra">随机取两个个体属于不同类别的概率</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Pielou 均匀度 J'</div>
+                <div class="value" id="eco-pielou">-</div>
+                <div class="extra" id="eco-pielou-note">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Margalef 丰富度</div>
+                <div class="value" id="eco-margalef">-</div>
+                <div class="extra" id="eco-margalef-note">类别数 / 个体总数已归一</div>
+            </div>
+        </div>
+
+        <div class="summary-line" style="margin-top:14px;">
+            <span id="eco-dominant">优势种: -</span>
+            <span id="eco-total">个体总数: -</span>
+            <span id="eco-richness">类别数: -</span>
+        </div>
+
+        <div class="grid-2" style="margin-top:6px;">
+            <div>
+                <h3 class="small muted" style="margin:12px 0 4px;">类别丰度与累计占比 (帕累托图)</h3>
+                <div class="chart-box"><canvas id="chart-abundance"></canvas></div>
+            </div>
+            <div>
+                <h3 class="small muted" style="margin:12px 0 4px;">多样性指数随时间变化</h3>
+                <div class="chart-box"><canvas id="chart-eco-trend"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">检测时段分布</h2>
+        <div class="chart-box" style="height:260px;"><canvas id="chart-hourly"></canvas></div>
     </div>
 
     <div class="grid-2">

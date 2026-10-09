@@ -16,6 +16,8 @@
             <a href="detect_video.html">视频检测</a>
             <a href="records.html">检测记录</a>
             <a href="stats.html">数据统计</a>
+            <a href="system.html">系统状态</a>
+            <a href="api_docs.html">接口文档</a>
         </nav>
         <span class="nav-status" id="nav-status">加载中...</span>
     </div>
@@ -23,7 +25,9 @@
 
 <div class="container">
     <h1 class="page-title">视频检测</h1>
-    <p class="page-desc">上传视频后逐帧检测, 浏览器实时显示检测画面与目标数量统计</p>
+    <p class="page-desc">
+        上传视频后逐帧检测, 采用目标跟踪跨帧去重, 统计真实目标数量(而非逐帧重复累加)
+    </p>
 
     <div id="alert-box"></div>
 
@@ -61,10 +65,18 @@
             <div class="paused-mask hidden" id="paused-mask">已暂停检测</div>
         </div>
 
-        <div class="live-stats" style="margin-top:14px;">
+        <div class="filter-chips" id="class-filter" style="margin-top:12px;">
+            <span class="muted small">开始检测后可在此按类别筛选检测框</span>
+        </div>
+
+        <div class="live-stats" style="margin-top:10px;">
             <div class="live-stat">
                 <div class="k">当前帧目标数量</div>
                 <div class="v" id="live-total">0</div>
+            </div>
+            <div class="live-stat">
+                <div class="k">累计唯一目标</div>
+                <div class="v" id="live-unique">0</div>
             </div>
             <div class="live-stat">
                 <div class="k">处理速度 (FPS)</div>
@@ -89,15 +101,31 @@
     <div class="card hidden" id="summary-card">
         <h2 class="card-title">
             检测完成统计
-            <a class="btn btn-sm btn-secondary" href="records.html">查看历史记录</a>
+            <span class="row">
+                <a class="btn btn-sm hidden" id="btn-download-video" download>⬇ 下载结果视频</a>
+                <a class="btn btn-sm btn-secondary" href="records.html">查看历史记录</a>
+            </span>
         </h2>
-        <div class="grid-4">
-            <div class="stat-card"><div class="label">处理帧数</div><div class="value" id="sum-frames">0</div></div>
+        <div class="grid-3">
+            <div class="stat-card">
+                <div class="label">唯一目标数(跟踪去重)</div>
+                <div class="value" id="sum-unique">0</div>
+                <div class="extra">跨帧认定为同一目标只计一次</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">累计检测框数</div>
+                <div class="value" id="sum-detections">0</div>
+                <div class="extra">所有已检测帧的目标框之和</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">处理帧数</div>
+                <div class="value" id="sum-frames" style="font-size:22px;">0</div>
+            </div>
             <div class="stat-card"><div class="label">平均速度</div><div class="value" id="sum-fps">0.0</div></div>
             <div class="stat-card"><div class="label">单帧峰值</div><div class="value" id="sum-peak">0</div></div>
             <div class="stat-card"><div class="label">平均每帧目标</div><div class="value" id="sum-avg">0</div></div>
         </div>
-        <h3 style="font-size:14px;margin:18px 0 8px;">全程各类别累计数量</h3>
+        <h3 style="font-size:14px;margin:18px 0 8px;">全程各类别唯一目标数</h3>
         <div class="tag-list" id="sum-tags"></div>
     </div>
 </div>

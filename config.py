@@ -51,6 +51,13 @@ class Settings:
     max_det: int = 300                # 单张最大检测数
     half: bool = False                # CPU 下不使用半精度
 
+    # ================= 目标跟踪参数(视频) =================
+    tracker: str = "bytetrack.yaml"   # 跟踪器配置: bytetrack.yaml / botsort.yaml
+    track_enabled: bool = True        # 视频检测是否启用目标跟踪(跨帧去重统计唯一目标)
+
+    # ================= 结果导出 =================
+    save_result_video: bool = True    # 视频检测时同步导出带检测框的结果视频(MP4)
+
     # ================= 视频检测参数 =================
     frame_skip: int = 2               # 每 N 帧检测 1 帧(CPU 提速)
     video_max_side: int = 960         # 送入推理前长边缩放上限
@@ -63,6 +70,19 @@ class Settings:
     port: int = 8000
     reload: bool = False
     max_upload_mb: int = 300          # 单个上传文件大小上限
+    max_batch_images: int = 20        # 批量图片检测单次最大张数
+
+    # ================= 资源治理 =================
+    # 僵尸任务回收: 上传后未连接 WebSocket(用户离开/刷新)的任务会永久滞留,
+    # 超过 TTL 或超出数量上限时自动回收并删除其上传文件。
+    max_active_video_tasks: int = 3    # 同时驻留的视频任务上限(含未开始的)
+    video_task_ttl_sec: int = 600      # 任务未连接 WebSocket 的存活时间(秒)
+
+    # 文件保留策略: 按天数清理过期的上传/结果文件, 并同步删除关联数据库记录
+    # 论文素材需长期留存, 保留期设为 365 天(约等于不清理); 设 0 可完全关闭自动清理
+    auto_cleanup: bool = True          # 服务启动时执行一次过期清理
+    file_retention_days: int = 365     # 文件保留天数, 0 表示不清理
+    dedupe_upload: bool = True         # 按文件内容去重, 重复上传直接复用已有文件
 
     # ================= 文件类型白名单 =================
     allowed_image_ext: tuple = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
