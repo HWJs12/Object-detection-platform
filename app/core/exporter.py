@@ -197,31 +197,80 @@ def build_coco(items: Sequence[Dict[str, Any]]) -> bytes:
 
 def _unique_stem(stem: str, used: Dict[str, int]) -> str:
     """同名图片(重复上传)时追加序号, 避免标签文件互相覆盖。"""
-    if stem not in used:
-        used[stem] = 1
-        return stem
-    used[stem] += 1
-    return f"{stem}_{used[stem]}"
+    candidate = stem
+    suffix = 1
+    while candidate in used:
+        suffix += 1
+        candidate = f"{stem}_{suffix}"
+    used[candidate] = 1
+    return candidate
+
+
+def _yolo_class_id(value: Any) -> Optional[int]:
+    """YOLO 类别编号必须是非负整数, 不把缺失编号默认为第 0 类。"""
+    try:
+        cid = int(value)
+        return cid if cid >= 0 and float(value) == cid else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _yolo_categories(items: Sequence[Dict[str, Any]]) -> List[Tuple[int, str]]:
+    """保留历史编号, 用记录中的类名/模型类表补齐从 0 开始的槽位。"""
+    mapping: Dict[int, str] = {}
+    ids = set()
+
+    def collect(cid: Any, name: Any) -> None:
+        cid = _yolo_class_id(cid)
+        if cid is None:
+            return
+        ids.add(cid)
+        # classes.txt 每行只能放一个类别, 避免类名换行错位。
+        name = " ".join(str(name).splitlines()).strip() if name is not None else ""
+        if name:
+            mapping.setdefault(cid, name)
+
+    # 检测明细中的名称优先; 不读取当前模型猜测历史类别。
+    for item in items:
+        for det in item.get("detections") or []:
+            collect(det.get("class_id"), det.get("class_name"))
+    for item in items:
+        snapshot = item.get("inference_snapshot") or {}
+        classes = (snapshot.get("model") or {}).get("classes") or []
+        if isinstance(classes, dict):
+            for cid, name in classes.items():
+                collect(cid, name)
+        elif isinstance(classes, list):
+            for cid, entry in enumerate(classes):
+                if isinstance(entry, dict):
+                    collect(entry.get("id"), entry.get("name"))
+                elif isinstance(entry, str):
+                    collect(cid, entry)
+    return [(cid, mapping.get(cid, f"__unknown_class_{cid}__"))
+            for cid in range(max(ids) + 1)] if ids else []
 
 
 def _build_readme(categories: Sequence[Tuple[int, str]]) -> str:
-    names = ", ".join(f"'{name}'" for _, name in categories)
+    names = json.dumps([name for _, name in categories], ensure_ascii=False)
     class_lines = "\n".join(f"  {cid} = {name}" for cid, name in categories)
+    empty_warning = "" if categories else "\n警告: 本批没有可恢复的类别表, 不能使用 nc: 0 直接训练。请从原模型补全类别表; 空标签仅表示负样本。\n"
     return f"""YOLO 格式标签导出
 ==================
 
 目录结构:
   labels/<图片名>.txt   每张图对应一个标签文件(无目标则为空文件, 表示负样本)
-  classes.txt           类别列表, 行号即 class_id
+  classes.txt           类别列表, 从 0 开始编号, 第 1 行对应 class_id=0
   README.txt            本说明
 
 标签格式(每行一个目标):
   <class_id> <cx> <cy> <w> <h>
   坐标已归一化到 0~1, 保留 6 位小数
 
-类别顺序:
+类别顺序(保留原模型 class_id, 不重新编号):
 {class_lines}
-
+未记录名称的槽位使用 __unknown_class_N__ 占位, 不代表已知生物类别。
+训练前请按原模型核实占位类名; 导出不会读取当前模型猜测历史类别。
+{empty_warning}
 配套使用:
   把同名图片放入 images/, 标签放在 labels/, 即可用于 Ultralytics 训练。
   data.yaml 示例:
@@ -229,13 +278,13 @@ def _build_readme(categories: Sequence[Tuple[int, str]]) -> str:
     train: images
     val: images
     nc: {len(categories)}
-    names: [{names}]
+    names: {names}
 """
 
 
 def build_yolo(items: Sequence[Dict[str, Any]]) -> bytes:
     """打包 zip: labels/*.txt + classes.txt + README.txt。"""
-    categories = _collect_categories(items)
+    categories = _yolo_categories(items)
     used: Dict[str, int] = {}
 
     buffer = io.BytesIO()
@@ -251,16 +300,18 @@ def build_yolo(items: Sequence[Dict[str, Any]]) -> bytes:
                 norm = _norm_box(*box, width, height)
                 if norm is None:
                     continue
-                cid = det.get("class_id")
+                cid = _yolo_class_id(det.get("class_id"))
+                if cid is None:
+                    continue
                 cx, cy, bw, bh = norm
                 lines.append(
-                    f"{int(cid) if cid is not None else 0} "
+                    f"{cid} "
                     f"{cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
                 )
             # 空文件即负样本, 符合 YOLO 约定
             zf.writestr(f"labels/{stem}.txt", "\n".join(lines) + ("\n" if lines else ""))
 
-        zf.writestr("classes.txt", "\n".join(name for _, name in categories) + "\n")
+        zf.writestr("classes.txt", "\n".join(name for _, name in categories) + ("\n" if categories else ""))
         zf.writestr("README.txt", _build_readme(categories))
 
     return buffer.getvalue()

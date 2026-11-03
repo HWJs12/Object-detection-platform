@@ -55,9 +55,9 @@ async function loadRecent() {
             <tr>
                 <td>${escapeHtml(r.created_at)}</td>
                 <td>${escapeHtml(r.source_name)}</td>
-                <td><span class="badge ${r.task_type === 'video' ? 'video' : ''}">${r.task_type === 'video' ? '视频' : '图片'}</span></td>
+                <td>${mediaTypeBadge(r.task_type)}</td>
                 <td>${fmtNumber(r.total_objects)}</td>
-                <td class="muted">${r.task_type === 'video' ? '-' : ''}</td>
+                <td class="muted">${r.inference_ms !== null && r.inference_ms !== undefined && Number.isFinite(Number(r.inference_ms)) ? `${Number(r.inference_ms).toFixed(1)} ms${r.task_type === 'video' ? '/帧' : ''}` : '—'}</td>
             </tr>`).join('');
     } catch (err) {
         tbody.innerHTML = `<tr><td colspan="5" class="empty">加载失败: ${escapeHtml(err.message)}</td></tr>`;

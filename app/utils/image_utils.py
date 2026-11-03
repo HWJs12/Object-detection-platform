@@ -6,12 +6,18 @@
 from __future__ import annotations
 
 import base64
+import warnings
+from io import BytesIO
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+from app.utils.exceptions import InvalidFileError
+
+MAX_DECODE_PIXELS = 25_000_000
 
 # 常见中英文字体候选(按优先级)
 _FONT_CANDIDATES = [
@@ -53,11 +59,26 @@ def class_color(class_id: int) -> Tuple[int, int, int]:
 
 
 def imdecode(buf: bytes) -> Optional[np.ndarray]:
-    """解码图片字节为 BGR 数组, 失败返回 None。"""
+    """先检查图片头中的像素尺寸, 再解码, 限制压缩炸弹造成的内存占用。"""
     if not buf:
         return None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(buf)) as probe:
+                width, height = probe.size
+    except (Image.DecompressionBombWarning, Image.DecompressionBombError) as exc:
+        raise InvalidFileError("图片尺寸过大, 无法安全解码") from exc
+    except (OSError, ValueError):
+        return None
+    if width <= 0 or height <= 0 or width * height > MAX_DECODE_PIXELS:
+        raise InvalidFileError(
+            f"图片像素数超过安全上限 ({MAX_DECODE_PIXELS:,} 像素)"
+        )
     arr = np.frombuffer(buf, dtype=np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is not None and img.shape[0] * img.shape[1] > MAX_DECODE_PIXELS:
+        raise InvalidFileError("图片解码尺寸超过安全上限")
     return img
 
 

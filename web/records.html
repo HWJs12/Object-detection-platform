@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>检测记录 - 水下海洋生物目标检测与分析系统</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/visuals.css">
 </head>
 <body>
 <header class="navbar">
@@ -14,7 +15,9 @@
             <a href="index.html">首页</a>
             <a href="detect_image.html">图片检测</a>
             <a href="detect_video.html">视频检测</a>
+            <a href="survey_map.html">养殖地形图</a>
             <a href="records.html">检测记录</a>
+            <a href="gallery.html">目标图库</a>
             <a href="stats.html">数据统计</a>
             <a href="system.html">系统状态</a>
             <a href="api_docs.html">接口文档</a>
@@ -40,6 +43,7 @@
                     <option value="video">视频</option>
                 </select>
             </div>
+            <div class="field"><label for="filter-site">调查站点</label><select id="filter-site"><option value="">全部站点（含旧未标注记录）</option></select></div>
             <div class="field">
                 <label>文件名关键字</label>
                 <input type="text" id="filter-keyword" placeholder="如 fish01.jpg">
@@ -62,20 +66,50 @@
             记录列表
             <span class="small muted" id="record-count"></span>
         </h2>
+        <div class="select-bar" id="select-bar">
+            <label class="select-all">
+                <input type="checkbox" id="select-all" title="勾选当前页全部记录">
+                <span>全选本页</span>
+            </label>
+            <span class="small muted" id="select-hint">勾选 2–4 条记录可并列对比</span>
+            <div class="select-actions">
+                <button class="btn btn-sm" id="btn-compare" disabled>对比所选</button>
+                <button class="btn btn-sm btn-secondary" id="btn-bulk-report" disabled
+                        title="把所选图片记录合成一份检测报告 PDF（最多 50 张）">批量报告</button>
+                <button class="btn btn-sm btn-secondary" id="btn-bulk-export" disabled
+                        title="把所选图片记录导出为 CSV / COCO / YOLO 标签，供下游训练直接使用">导出标签</button>
+                <select id="bulk-export-format" class="table-filter" title="标签导出格式"
+                        aria-label="标签导出格式">
+                    <option value="csv">CSV</option>
+                    <option value="coco">COCO</option>
+                    <option value="yolo">YOLO</option>
+                </select>
+                <button class="btn btn-sm btn-secondary" id="btn-clear-select" disabled>清除选择</button>
+            </div>
+        </div>
         <div class="table-wrap">
             <table>
                 <thead>
                 <tr>
+                    <th class="col-check"><span class="visually-hidden">选择</span></th>
                     <th>ID</th><th>预览</th><th>检测时间</th><th>文件名称</th><th>类型</th>
                     <th>目标数量</th><th>耗时 / 帧数</th><th>操作</th>
                 </tr>
                 </thead>
                 <tbody id="records-body">
-                <tr><td colspan="8" class="empty">加载中...</td></tr>
+                <tr><td colspan="9" class="empty">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
         <div class="pagination" id="pagination"></div>
+    </div>
+
+    <div class="card hidden" id="compare-card">
+        <h2 class="card-title">
+            多记录对比
+            <span class="small muted" id="compare-subtitle"></span>
+        </h2>
+        <div id="compare-body"></div>
     </div>
 </div>
 
@@ -84,5 +118,7 @@
 <script src="vendor/chart.js"></script>
 <script src="js/common.js"></script>
 <script src="js/records.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/visuals.js"></script>
 </body>
 </html>

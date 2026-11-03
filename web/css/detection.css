@@ -1,0 +1,31 @@
+/* 检测工作区：站点、素材、参数按操作顺序排列。 */
+.detection-workspace { max-width: 1240px; }
+.detection-setup { padding: 24px; }
+.detection-setup-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding-bottom:20px; border-bottom:1px solid var(--border); }
+.detection-setup-heading h2 { margin:4px 0 5px; font-size:20px; line-height:1.35; }
+.detection-setup-heading p { margin:0; color:var(--muted); font-size:13px; }
+.detection-kicker { color:var(--primary); font-size:10px; letter-spacing:.14em; font-weight:700; }
+.detection-status { flex:none; display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:var(--surface-soft); color:var(--muted-strong); font-size:12px; }
+.detection-status::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--primary); }
+.detection-step { padding:22px 0; border-bottom:1px solid var(--border); }
+.detection-step:last-child { padding-bottom:0; border-bottom:0; }
+.detection-step h3 { display:flex; align-items:center; gap:10px; margin:0 0 14px; font-size:15px; }
+.detection-step h3 span { display:inline-grid; place-items:center; width:28px; height:28px; border-radius:8px; background:var(--surface-soft); color:var(--primary); font-size:11px; font-weight:700; }
+.detection-step > .row { margin-top:0 !important; }
+.detection-step .survey-field { flex:1 1 140px; min-width:0; }
+.detection-step .survey-field input,.detection-step .survey-field select { width:100%; min-width:0; }
+.detection-step .survey-field[style] { max-width:none !important; }
+.detection-step .upload-area { padding:27px 18px; border-width:1px; }
+.detection-step .upload-area .icon { display:grid; place-items:center; width:42px; height:42px; margin:0 auto 10px; border-radius:12px; color:var(--primary); background:var(--surface-alt); font-size:22px; }
+.detection-actions .row { gap:10px; }
+.detection-actions .slider-field { flex:1 1 240px; max-width:380px; }
+.detection-actions .btn-danger { border-color:transparent; }
+.detection-preview .video-stage { border:1px solid var(--border); }
+@media (max-width:700px) {
+  .detection-setup { padding:18px; }
+  .detection-setup-heading { flex-wrap:wrap; }
+  .detection-step .survey-field { flex:1 1 42%; }
+  .detection-actions .slider-field { max-width:none; flex-basis:100%; }
+  .detection-actions .btn { flex:1 1 auto; }
+}
+@media (max-width:380px) { .detection-step .survey-field { flex-basis:100%; } }

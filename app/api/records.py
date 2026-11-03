@@ -10,16 +10,15 @@ from fastapi import APIRouter, Body, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
-from app.core import exporter
+from app.core import exporter, repro
 from app.core.storage import (
-    append_audit,
     checkpoint_db,
     release_record_files,
+    resolve_record_file,
 )
 from app.db import dao
 from app.utils.exceptions import AppError, RecordNotFoundError
 from app.utils.response import ok
-from config import settings
 
 router = APIRouter(prefix="/api/records", tags=["历史记录"])
 # 报告导出不挂在 /records 前缀下(它是一类独立的输出能力)
@@ -34,10 +33,11 @@ async def list_records(
     date_to: str = Query("", description="结束日期 YYYY-MM-DD"),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
+    site_id: Optional[int] = Query(None, ge=1, description="地图站点编号"),
 ) -> Dict[str, Any]:
     rows, total = dao.list_records(
         task_type=task_type, keyword=keyword, date_from=date_from,
-        date_to=date_to, page=page, page_size=page_size,
+        date_to=date_to, page=page, page_size=page_size, site_id=site_id,
     )
     # 图片记录补充结果图访问地址; 视频记录补充结果视频地址
     for row in rows:
@@ -141,9 +141,23 @@ def _assemble_report_items(records: List[Dict[str, Any]]) -> List[Dict[str, Any]
             "inference_ms": rec.get("inference_ms"),
             "conf_threshold": rec.get("conf_threshold"),
             "created_at": rec.get("created_at"),
+            "record_id": rec.get("id"),
+            "source_hash": rec.get("source_hash"),
+            "inference_snapshot": rec.get("inference_snapshot") or {},
+            "counting_mode": rec.get("counting_mode"),
+            # 调查维度: 供报告方法学附录汇总"本批在哪些站点、什么水深下采集"。
+            # 未填写时保持 None, 附录会显示"未标注", 不用空串冒充有效值。
+            "site": rec.get("site"),
+            "transect": rec.get("transect"),
+            "depth_m": rec.get("depth_m"),
+            "survey_round": rec.get("survey_round"),
+            # 计数相关: 附录需要说明本批实际采用了哪套口径
+            "maxn_total": rec.get("maxn_total"),
+            "cpunx": rec.get("cpunx"),
+            "unique_count_valid": rec.get("unique_count_valid"),
         }
         # 明细: 数据库按 frame_index/confidence 排序, 图片记录的 frame_index 恒为 0
-        dets = dao.get_record_items(rec["id"])
+        dets = dao.get_record_items(rec["id"], limit=None)
         item["detections"] = [{
             "class_id": d.get("class_id"),
             "class_name": d.get("class_name"),
@@ -160,9 +174,11 @@ def _assemble_report_items(records: List[Dict[str, Any]]) -> List[Dict[str, Any]
 def _attachment_response(content: bytes, filename: str, media_type: str,
                          extra: Optional[Dict[str, str]] = None) -> Response:
     """构造附件下载响应。中文文件名走 RFC 5987, 否则部分浏览器下载后乱码。"""
-    quoted = urllib.parse.quote(filename)
+    quoted = urllib.parse.quote(filename, safe="")
+    # HTTP headers require an ASCII fallback; the UTF-8 parameter keeps the real name.
+    fallback = "".join(c if 32 <= ord(c) < 127 and c not in '"\\' else "_" for c in filename)
     headers: Dict[str, str] = {
-        "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quoted}",
+        "Content-Disposition": f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quoted}",
         "Content-Length": str(len(content)),
     }
     if extra:
@@ -179,6 +195,8 @@ def _load_records(ids: List[Any], action: str = "生成报告") -> List[Dict[str
         except (TypeError, ValueError):
             raise AppError(f"非法的记录 ID: {rid}", code="INVALID_RECORD_ID")
         if rec:
+            if rec.get("task_type") != "image":
+                raise AppError("图片报告和训练标签仅支持图片记录, 视频明细为采样数据", code="IMAGE_RECORD_REQUIRED")
             records.append(rec)
     if not records:
         raise AppError(f"所选记录均已不存在, 无法{action}", code="RECORDS_NOT_FOUND")
@@ -208,18 +226,10 @@ async def export_image_report(
 
     items = await run_in_threadpool(_assemble_report_items, records)
 
-    model_name = None
-    try:
-        if settings.model_path_abs:
-            model_name = settings.model_path_abs.name
-    except Exception:
-        pass
-
     def _build() -> bytes:
         from app.core.report import build_report_pdf
 
         return build_report_pdf(items, meta={
-            "model_name": model_name,
             "conf": records[0].get("conf_threshold"),
             "batch_count": len(items),
         })
@@ -280,3 +290,215 @@ async def export_labels_api(
     stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"detection_labels_{stamp}_{len(records)}pcs{ext}"
     return _attachment_response(content, filename, media_type, {"X-Export-Format": fmt})
+
+
+# ---------------------------------------------------------------- 可复现实验包
+
+_COUNT_SOURCE_LABEL = {
+    "unique_tracks": "跨帧轨迹数",
+    "maxn": "单帧峰值 MaxN",
+    "total_detections": "累计检出框",
+    "image_objects": "图片检出框",
+}
+
+# ------------------------------------------------------------ 导出预检 (只读)
+#
+# 导出类接口原本都是"点下去才开始算", 有问题只能等失败后看报错。
+# 预检把"能不能导、导出来大概多大、有什么后果"提前算清楚:
+# 只读库与文件 stat, 不生成任何产物、不落盘、不写审计, 因此可以随便调用。
+
+_BUNDLE_SIZE_LIMIT = repro.MAX_BUNDLE_BYTES
+
+
+@report_router.get(
+    "/preflight/{record_id}", summary="导出前预检 (只读, 不生成文件)"
+)
+async def export_preflight(record_id: int) -> Dict[str, Any]:
+    """告诉前端"这条记录导出会遇到什么", 让用户在真正点击前就知道结果。
+
+    返回:
+        - 源文件 / 结果文件是否还在受管目录(已被清理的要提前告知, 而不是等 README 里才发现);
+        - 打包后的大致体积, 以及素材体积是否已逼近包上限;
+        - 明细行数与该记录累计检出框数的关系(视频明细有入库上限, 二者会不一致);
+        - 本次导出实际采用哪套计数口径, 以及需要提醒的条目。
+
+    副作用: 无。只读数据库字段与文件 `stat()`, 不读文件内容、不组装 zip。
+    """
+    record = dao.get_record(record_id)
+    if not record:
+        raise RecordNotFoundError(f"记录不存在: {record_id}")
+
+    notes: List[str] = []
+    task_type = record.get("task_type") or "image"
+
+    # ---- 素材可用性: 与 build_bundle 的取材顺序一致, 但只 stat 不读 ----
+    assets: List[Dict[str, Any]] = []
+    for column, label in (
+        ("saved_name", "原始上传文件"),
+        ("result_image", "结果图"),
+        ("result_video", "结果视频"),
+    ):
+        filename = record.get(column)
+        if not filename:
+            continue
+        path = resolve_record_file(column, str(filename))
+        present = bool(path and path.exists())
+        size = path.stat().st_size if present else 0
+        assets.append({
+            "field": column,
+            "label": label,
+            "available": present,
+            "bytes": size,
+        })
+        if not present:
+            notes.append(
+                f"{label}已不在受管目录中(可能被保留策略清理或移入回收站), "
+                f"复现包里会把它记入缺失清单而不是用空文件顶替"
+            )
+
+    payload_bytes = sum(a["bytes"] for a in assets if a["available"])
+    # 压缩率无法预知其数值, 这里只声明一个"包大小不超过素材总量"的上界:
+    # 已压缩的 jpg/mp4 接近 1:1, 明细 CSV 才会明显变小。不给出预估数字, 避免与实测不符。
+    size_blocked = bool(payload_bytes) and payload_bytes > _BUNDLE_SIZE_LIMIT
+    if size_blocked:
+        notes.append(
+            f"素材合计 {payload_bytes / 1024 / 1024:.1f} MB 已超过复现包上限 "
+            f"{_BUNDLE_SIZE_LIMIT / 1024 / 1024:.0f} MB, 直接导出会被拒绝"
+        )
+
+    # ---- 明细规模: 视频明细有入库上限, 与累计检出框数不是一回事 ----
+    item_rows = len(dao.get_record_items(record_id, limit=None))
+    total_detections = record.get("total_detections")
+    if task_type == "video" and total_detections and total_detections > item_rows:
+        notes.append(
+            f"results.csv 只含入库的 {item_rows} 行采样明细, 该记录累计检出框 "
+            f"{total_detections} 个; 逐帧全貌以 frame_stats.csv 为准"
+        )
+
+    # ---- 计数口径: 跨记录比较前必须先对齐的那一组 ----
+    source = record.get("effective_count_source") or (
+        "image_objects" if task_type != "video" else "total_detections"
+    )
+    count_warning = None
+    if task_type == "video" and source == "total_detections":
+        count_warning = (
+            "该视频既未取得完整去重依据, 也未产生 MaxN, 计数回退为累计检出框, "
+            "与其他视频记录的计数不可直接比较"
+        )
+        notes.append(count_warning)
+
+    # ---- 标签导出适用性: 标签只能对应"一张图" ----
+    label_formats = ["csv", "coco", "yolo"]
+    label_ok = task_type != "video"
+    if not label_ok:
+        label_formats = []
+        notes.append(
+            "视频记录不做标签导出: 一份标签只能对应一张静态影像, "
+            "视频明细跨帧、含轨迹, 转成单图标签会失真"
+        )
+
+    return ok({
+        "record_id": record_id,
+        "task_type": task_type,
+        "source_name": record.get("source_name"),
+        "status": record.get("status"),
+        "assets": assets,
+        "asset_bytes": payload_bytes,
+        "bundle_size_limit": _BUNDLE_SIZE_LIMIT,
+        # 布尔字段名即结论, 不让前端自己从字节数反推判断规则
+        "bundle_exportable": not size_blocked and record.get("status") == "success",
+        "label_formats": label_formats,
+        "label_exportable": label_ok and record.get("status") == "success",
+        "item_rows": item_rows,
+        "total_detections": total_detections,
+        "effective_count": record.get("effective_count"),
+        "effective_count_source": source,
+        "counting_source_label": _COUNT_SOURCE_LABEL.get(source, source),
+        "maxn_total": (record.get("maxn") or {}).get("maxn_total"),
+        "notes": notes,
+        "warning_count": len(notes),
+    })
+
+
+def _bundle_manifest(record: Dict[str, Any]) -> Dict[str, Any]:
+    """把记录压成复现包所需的摘要, 只放"重跑和对账"真正需要的字段。
+
+    刻意不含 result_url 等会话相关路径: 复现包应当能脱离本机服务被读懂。
+    """
+    snapshot = record.get("inference_snapshot") or {}
+    source = record.get("effective_count_source") or (
+        "image_objects" if record.get("task_type") != "video" else "total_detections"
+    )
+    return {
+        "record_id": record.get("id"),
+        "source_name": record.get("source_name"),
+        "task_type": record.get("task_type"),
+        "status": record.get("status"),
+        "created_at": record.get("created_at"),
+        "exported_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "image_width": record.get("image_width"),
+        "image_height": record.get("image_height"),
+        "duration_sec": record.get("duration_sec"),
+        "source_hash": record.get("source_hash"),
+        "conf_threshold": record.get("conf_threshold"),
+        "inference_ms": record.get("inference_ms"),
+        "counting_mode": record.get("counting_mode"),
+        "counted_as": record.get("counted_as"),
+        "counting_mode_reason": record.get("counting_mode_reason"),
+        "parameters": snapshot.get("parameters") or {},
+        # 计数与口径: 阅读数字前必须先对齐这一组
+        "effective_count": record.get("effective_count"),
+        "effective_count_source": source,
+        "counting_source_label": _COUNT_SOURCE_LABEL.get(source, source),
+        "total_detections": record.get("total_detections"),
+        "tracked_objects": record.get("tracked_objects"),
+        "maxn_total": (record.get("maxn") or {}).get("maxn_total"),
+        "cpunx": (record.get("maxn") or {}).get("cpunx"),
+        # 调查维度
+        "site": record.get("site"),
+        "transect": record.get("transect"),
+        "depth_m": record.get("depth_m"),
+        "survey_round": record.get("survey_round"),
+        "environment": repro.environment_info(),
+    }
+
+
+@report_router.get("/repro/{record_id}", summary="导出可复现实验包 (zip)")
+async def export_repro_bundle(record_id: int) -> Response:
+    """把一条记录的全部物证打包成 zip: 源文件 / 参数快照 / 明细 / 逐帧统计 /
+    模型摘要 / 环境信息 / README。
+
+    仅在调用时组装, 不落盘。缺失的文件(已被保留策略清理等)会在 README 与
+    manifest 中如实列出, 不以空文件冒充。
+    """
+    record = dao.get_record(record_id)
+    if not record:
+        raise RecordNotFoundError(f"记录不存在: {record_id}")
+
+    manifest = _bundle_manifest(record)
+    record["items"] = dao.get_record_items(record_id, limit=None)
+    record["class_stats"] = dao.get_record_class_stats(record_id)
+    record["frame_stats"] = dao.get_record_frame_stats(record_id)
+
+    def _build() -> Tuple[bytes, Dict[str, Any]]:
+        return repro.build_bundle(manifest, record, resolve_record_file)
+
+    try:
+        bundle, stats_out = await run_in_threadpool(_build)
+    except Exception as exc:
+        raise AppError(f"复现包生成失败: {exc}", code="REPRO_FAILED", status_code=500)
+
+    if len(bundle) > repro.MAX_BUNDLE_BYTES:
+        raise AppError(
+            f"复现包体积 {len(bundle) / 1024 / 1024:.1f} MB 超过上限 "
+            f"{repro.MAX_BUNDLE_BYTES / 1024 / 1024:.0f} MB, 请先确认源视频大小",
+            code="BUNDLE_TOO_LARGE",
+        )
+
+    stem = repro.safe_archive_name(record)
+    stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"repro_{record_id}_{stem}_{stamp}.zip"
+    return _attachment_response(bundle, filename, "application/zip", {
+        "X-Repro-Files": str(stats_out["files"]),
+        "X-Repro-Missing": str(len(stats_out["missing"])),
+    })

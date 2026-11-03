@@ -2,7 +2,7 @@
    设计: 不硬编码接口列表 —— 后端新增接口后本页自动同步, 不会与代码脱节 */
 
 let SPEC = null;
-const TAG_ORDER = ['系统状态', '图片检测', '视频检测', '历史记录', '数据统计', '检测报告', '模型与配置', '系统', '存储治理'];
+const TAG_ORDER = ['养殖地形图', '系统状态', '图片检测', '视频检测', '历史记录', '多记录对比', '数据统计', '检测报告', '模型与配置', '系统', '存储治理'];
 
 /* ---------------- 工具 ---------------- */
 
@@ -39,12 +39,14 @@ function concretize(path) {
 /** 生成某个端点的 cURL 示例 */
 function curlFor(ep) {
     const m = ep.method.toUpperCase();
-    const url = `http://127.0.0.1:8000${concretize(ep.path)}`;
+    const url = `${location.origin}${concretize(ep.path)}`;
+    if (ep.hasFile) {
+        const field = ep.path === '/api/detect/images' ? 'files' : 'file';
+        const filename = ep.path === '/api/detect/video' ? 'sample.mp4' : 'sample.jpg';
+        return `curl -X ${m} "${url}" \\\n     -F "${field}=@${filename}" \\\n     -F "site_id=1"`;
+    }
     if (ep.hasBody) {
         return `curl -X ${m} "${url}" \\\n     -H "Content-Type: application/json" \\\n     -d '{}'`;
-    }
-    if (ep.hasFile) {
-        return `curl -X ${m} "${url}" \\\n     -F "file=@sample.jpg"`;
     }
     return `curl -X ${m} "${url}"`;
 }

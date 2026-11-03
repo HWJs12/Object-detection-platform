@@ -1,0 +1,73 @@
+.survey-map-page { max-width: 1540px; }
+.survey-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; margin:4px 0 20px; }
+.survey-heading .page-title { font-size:28px; margin:4px 0; }
+.survey-heading .page-desc { margin:0; }
+.survey-kicker { color:var(--muted-strong); font-size:12px; letter-spacing:.14em; }
+.survey-fiction { border:1px solid var(--border-strong); border-radius:20px; padding:7px 13px; background:var(--card); color:var(--muted-strong); font-size:12px; white-space:nowrap; }
+.survey-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:20px; align-items:start; }
+.map-panel { min-width:0; border:1px solid var(--border-strong); border-radius:14px; overflow:hidden; background:#0b2033; box-shadow:0 12px 35px rgba(2,15,28,.15); }
+.map-toolbar { min-height:55px; padding:12px 16px; color:#d4eaf5; background:#112b40; display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:13px; }
+.map-viewport { overflow:auto; }
+.map-stage { position:relative; min-width:580px; user-select:none; isolation:isolate; }
+.map-stage.placing { cursor:crosshair; outline:2px solid #67e8f9; outline-offset:-2px; }
+.map-terrain { display:block; width:100%; height:auto; pointer-events:none; }
+.map-region { position:absolute; pointer-events:none; color:#c2d6e1; font-weight:600; font-size:clamp(14px,1.5vw,20px); letter-spacing:.14em; text-shadow:0 2px 5px #031626,0 0 10px #031626; opacity:.83; }
+.map-region small { display:block; font-size:10px; font-weight:400; letter-spacing:.18em; margin-top:4px; }
+.region-bay { left:30%; top:20%; }.region-reef { left:30%; top:65%; }.region-deep { left:75%; top:48%; }
+.map-credit { position:absolute; right:12px; bottom:10px; color:#d8e7f0; background:rgba(3,20,35,.8); padding:3px 8px; border-radius:4px; font-size:10px; pointer-events:none; }
+.map-empty { position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); text-align:center; color:#e9f8ff; background:rgba(8,30,48,.88); border:1px dashed #6a99b4; border-radius:12px; padding:18px 24px; pointer-events:none; white-space:nowrap; }
+.map-empty small { display:block; color:#b7d1e2; margin-top:5px; }
+.map-legend { display:flex; flex-wrap:wrap; align-items:center; gap:18px; padding:11px 16px; color:#bcd2df; font-size:12px; }
+.map-legend i { width:8px; height:8px; border-radius:50%; background:#67e8f9; display:inline-block; margin-right:7px; }.map-legend i.legend-inactive { background:#92a3b2; }
+.station-marker { position:absolute; z-index:2; transform:translate(-50%,-75%); background:none; border:0; padding:0; width:52px; height:64px; cursor:grab; touch-action:none; color:#ecfaff; }
+.station-marker:active { cursor:grabbing; }.station-marker:focus-visible { outline:2px solid #fff; outline-offset:8px; border-radius:8px; }
+.station-marker img { width:52px; height:64px; display:block; pointer-events:none; filter:drop-shadow(0 4px 4px #00131c); }
+.station-marker span { position:absolute; left:50%; top:59px; transform:translateX(-50%); background:rgba(5,24,40,.96); color:#f1fbff; border:1px solid #648ca6; padding:3px 8px; border-radius:5px; font-size:12px; max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none; }
+.station-marker.selected { z-index:3; }.station-marker.selected img { filter:drop-shadow(0 0 7px #67e8f9); }.station-marker.selected span { border-color:#67e8f9; }
+.station-marker.inactive img { filter:grayscale(1) drop-shadow(0 4px 4px #00131c); opacity:.75; }.station-marker.inactive span { color:#c4ced8; }
+.station-marker.edge-left span { left:0; transform:none; }.station-marker.edge-right span { left:auto; right:0; transform:none; }.station-marker.edge-top { transform:translate(-50%,0); }.station-marker.edge-bottom span { top:-22px; }
+.survey-sidebar { min-width:0; }.survey-sidebar .card { margin-bottom:16px; padding:18px; }.station-tool { width:100%; display:flex; align-items:center; gap:12px; color:var(--text); border:1px dashed var(--border-strong); background:var(--surface-alt); border-radius:10px; padding:12px; cursor:grab; text-align:left; }.station-tool img { width:43px; height:52px; }.station-tool small { display:block; color:var(--muted); font-size:11px; margin-top:4px; }.station-tool b { margin-left:auto; font-size:24px; color:var(--primary-dark); }.station-tool:focus-visible { outline:2px solid var(--primary); }
+.station-list-heading { display:flex; align-items:center; justify-content:space-between; margin-top:20px; font-size:12px; color:var(--muted-strong); }.text-button { border:0; background:none; padding:3px; cursor:pointer; color:var(--primary-dark); }.station-list { max-height:210px; overflow:auto; margin-top:9px; }.station-list-item { width:100%; display:flex; align-items:center; justify-content:space-between; text-align:left; gap:10px; padding:9px 10px; border:1px solid transparent; border-bottom-color:var(--border); background:transparent; color:var(--text); cursor:pointer; border-radius:5px; }.station-list-item span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.station-list-item small { color:var(--muted); flex:none; }.station-list-item.selected { background:var(--surface-alt); border-color:var(--border-strong); }
+.station-detail-card h3 { overflow-wrap:anywhere; margin:6px 0; font-size:20px; }.station-detail-card .station-note { white-space:pre-wrap; overflow-wrap:anywhere; }.station-detail-meta { color:var(--muted); font-size:12px; }.station-detail-actions { display:flex; flex-wrap:wrap; gap:7px; margin:14px 0; }.station-detail-actions a { flex:1; text-align:center; }.station-summary { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:15px 0; }.station-summary div { background:var(--surface-alt); padding:10px; border-radius:7px; font-size:11px; color:var(--muted-strong); }.station-summary strong { display:block; font-size:21px; color:var(--primary-dark); }.station-record { display:block; padding:9px 0; border-bottom:1px solid var(--border); font-size:12px; overflow-wrap:anywhere; }.station-record small { display:block; color:var(--muted); }.station-categories { display:flex; flex-wrap:wrap; gap:5px; }.station-categories span { background:var(--surface-alt); color:var(--muted-strong); padding:3px 6px; border-radius:4px; font-size:11px; }
+.station-dialog { width:min(480px,calc(100vw - 32px)); padding:25px; border:1px solid var(--border-strong); border-radius:14px; color:var(--text); background:var(--card); box-shadow:0 20px 80px #0007; }.station-dialog::backdrop { background:rgba(1,15,28,.65); backdrop-filter:blur(3px); }.station-dialog h2 { margin:0 0 6px; }.station-dialog .field { margin:12px 0; }.station-dialog input,.station-dialog textarea { width:100%; }.station-dialog .row { gap:14px; }.station-dialog .row .field { min-width:0; flex:1; }.station-dialog-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:15px; }.form-error { color:var(--danger,#dc2626); font-size:13px; }
+@media(max-width:1100px) { .survey-layout { grid-template-columns:minmax(0,1fr) 270px; gap:14px; } }
+@media(max-width:850px) { .survey-layout { grid-template-columns:1fr; }.survey-sidebar { display:grid; grid-template-columns:1fr 1fr; gap:15px; }.survey-heading { align-items:flex-start; }.survey-fiction { white-space:normal; max-width:160px; }.map-stage { min-width:580px; } }
+@media(max-width:560px) { .survey-sidebar { display:block; }.survey-heading { flex-direction:column; gap:10px; }.survey-fiction { max-width:none; }.survey-heading .page-title { font-size:24px; }.map-toolbar { font-size:12px; }.map-viewport { max-height:65vh; }.station-dialog { max-height:90vh; overflow:auto; }.map-empty { font-size:12px; padding:12px; } }
+
+.map-toolbar [hidden] { display:none; }
+
+.station-delete-description { overflow-wrap:anywhere; margin:18px 0 10px; font-weight:600; }
+.station-dialog .btn-danger { min-width:100px; }
+
+/* 养殖所切换：缩略图只负责选择，地图中的站点按所属养殖所分别加载。 */
+.farm-switcher { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0 0 20px; }
+.farm-choice { display:flex; align-items:center; gap:12px; min-width:0; padding:10px 12px; border:1px solid var(--border-strong); border-radius:8px; background:var(--card); color:var(--text); text-align:left; cursor:pointer; }
+.farm-choice img { width:82px; height:52px; object-fit:cover; border-radius:4px; flex:none; }
+.farm-choice strong { display:block; font-size:15px; }.farm-choice small { display:block; margin-top:4px; color:var(--muted-strong); font-size:12px; }
+.farm-choice[aria-pressed="true"] { border-color:var(--primary-dark); box-shadow:inset 0 0 0 1px var(--primary-dark); background:var(--surface-alt); }
+.farm-choice:focus-visible { outline:2px solid var(--primary-dark); outline-offset:3px; }.farm-choice:disabled { cursor:wait; opacity:.7; }
+.map-stage { aspect-ratio:8/5; }.map-terrain { height:100%; position:absolute; inset:0; object-fit:fill; }
+.map-stage.terrain-loading #station-layer { visibility:hidden; }.map-stage[aria-busy="true"] { cursor:wait; }
+.map-empty[hidden] { display:none; }.station-tool:disabled { cursor:wait; opacity:.65; }
+@media(max-width:850px) { .farm-choice { padding:9px; gap:9px; }.farm-choice img { width:60px; height:46px; }.farm-choice small { font-size:11px; } }
+@media(max-width:560px) { .farm-switcher { gap:8px; }.farm-choice { flex-direction:column; align-items:stretch; text-align:center; padding:7px; gap:7px; }.farm-choice img { width:100%; height:58px; }.farm-choice strong { font-size:13px; }.farm-choice small { font-size:10px; } }
+
+/* 保留地图坐标与站点交互，仅调整工作区外观。 */
+.survey-heading { margin-bottom: 24px; }
+.survey-kicker { font-weight: 600; }
+.farm-choice { border-radius: 12px; transition: border-color .18s, background .18s; }
+.farm-choice:hover:not(:disabled) { border-color: var(--primary); }
+.farm-choice img { border-radius: 7px; }
+.survey-sidebar .card { border-radius: 14px; }
+.station-tool { transition: border-color .18s, background .18s; }
+.station-tool:hover:not(:disabled) { border-color: var(--primary); }
+.map-mobile-hint { display: none; margin: 0; padding: 9px 16px; color: #d4eaf5; background: #17364d; font-size: 12px; }
+.map-viewport { overscroll-behavior-x: contain; }
+@media (max-width: 850px) { .map-mobile-hint { display: block; } }
+@media (prefers-reduced-motion: reduce) { .farm-choice, .station-tool { transition: none; } }
+
+/* 连续水面渲染作用于三处海域，动画层不参与站点交互。 */
+.map-stage { overflow:hidden; }
+.ocean-water { display:none; position:absolute; inset:0; width:100%; height:100%; z-index:1; pointer-events:none; }
+.ocean-current .ocean-water { display:block; }
+.map-credit,.map-empty { z-index:4; }

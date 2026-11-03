@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Query
 from fastapi.concurrency import run_in_threadpool
@@ -119,7 +119,7 @@ async def clean_tmp() -> Dict[str, Any]:
 @router.get("/trash", summary="回收站文件列表")
 async def trash_list(limit: int = Query(50, ge=1, le=500)) -> Dict[str, Any]:
     """回收站概况 + 文件明细(按删除时间倒序), 供面板展示与单个恢复。"""
-    from app.core.storage import original_name_of, trash_dir, trash_stats
+    from app.core.storage import trash_dir, trash_entry_info, trash_stats
 
     stats = await run_in_threadpool(trash_stats)
 
@@ -129,22 +129,27 @@ async def trash_list(limit: int = Query(50, ge=1, le=500)) -> Dict[str, Any]:
 
         now_ts = _time.time()
         items = []
-        for p in trash_dir().iterdir():
-            if not p.is_file():
+        directory = trash_dir(create=False)
+        for p in directory.iterdir() if directory.exists() else ():
+            if not p.is_file() or p.is_symlink():
                 continue
             try:
                 st = p.stat()
             except OSError:
                 continue
+            info = trash_entry_info(p)
+            entered_at = info["entered_at"]
             items.append({
                 "trash_name": p.name,
-                "original_name": original_name_of(p.name),
+                "original_name": info["original_name"],
+                "directory": info["directory"],
                 "bytes": st.st_size,
-                "age_days": round((now_ts - st.st_mtime) / 86400, 2),
+                "entered_at": entered_at,
+                "age_days": round(max(0, now_ts - entered_at) / 86400, 2) if entered_at is not None else None,
                 "deleted_at": _dt.datetime.fromtimestamp(
-                    st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    entered_at).strftime("%Y-%m-%d %H:%M:%S") if entered_at is not None else "未知",
             })
-        items.sort(key=lambda x: x["age_days"])
+        items.sort(key=lambda x: x["entered_at"] or 0, reverse=True)
         return items[:limit]
 
     files = await run_in_threadpool(_list)
@@ -181,7 +186,14 @@ async def restore_trash_api(
     """把误删的文件从回收站恢复到原目录。"""
     from app.core.storage import restore_from_trash
 
-    result = await run_in_threadpool(lambda: restore_from_trash(name))
+    try:
+        result = await run_in_threadpool(lambda: restore_from_trash(name))
+    except FileExistsError:
+        raise AppError(
+            "恢复目标已存在，未覆盖现有文件；请先处理同名文件后重试",
+            code="RESTORE_CONFLICT",
+            status_code=409,
+        )
     if not result:
         raise AppError("回收站中未找到该文件", code="TRASH_NOT_FOUND", status_code=404)
     return ok(result, f"已恢复: {result['restored']}")
@@ -198,12 +210,14 @@ async def full_cleanup(
 
     _guard_no_video_tasks("执行清理")
 
-    result = await run_in_threadpool(
-        lambda: {
-            "expired": cleanup_expired(days or None),
-            "duplicates": cleanup_duplicates(dry_run=dry_run) if duplicates else {"count": 0},
-        }
-    )
+    def clean() -> Dict[str, Any]:
+        expired = cleanup_expired(days or None, dry_run=dry_run)
+        duplicate_result = cleanup_duplicates(
+            dry_run=dry_run, exclude_files=expired.get("reclaimed_files", []),
+        ) if duplicates else {"count": 0}
+        return {"expired": expired, "duplicates": duplicate_result}
+
+    result = await run_in_threadpool(clean)
     tmp_removed = 0 if dry_run else await run_in_threadpool(purge_tmp_files)
 
     freed = result["expired"].get("freed_bytes", 0) + result["duplicates"].get("freed_bytes", 0)

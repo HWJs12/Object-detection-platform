@@ -88,6 +88,27 @@ class Settings:
     allowed_image_ext: tuple = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
     allowed_video_ext: tuple = (".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv", ".webm")
 
+    # ================= AI 对话助手(可选, 默认关闭) =================
+    # 为接口文档页提供 AI 答疑。三条设计约束:
+    #   1. 默认关闭      —— 关闭时前端不渲染入口, 后端不发起任何外部请求
+    #   2. 密钥不落盘    —— 优先读环境变量 LLM_API_KEY, 其次读本项
+    #   3. 不阻塞服务    —— 全程 httpx 异步流式, 失败只降级为提示文案
+    llm_enabled: bool = False                # 总开关
+    llm_api_key: str = ""                    # 留空则使用环境变量 LLM_API_KEY
+    llm_base_url: str = "https://api.deepseek.com"
+    # 当前官方模型名(2026-09): deepseek-flash = DeepSeek-V4.1-Flash;
+    # 另有 deepseek-v4-pro。注意 deepseek-v4-flash 是旧别名, 虽仍可用但已废弃,
+    # 新接入应直接用 deepseek-flash。
+    llm_model: str = "deepseek-flash"
+    llm_connect_timeout: float = 5.0         # 连接超时(秒)
+    llm_read_timeout: float = 60.0           # 读取超时(秒)
+    llm_max_concurrency: int = 2             # 同时进行的对话数上限
+    # V4.1-Flash 默认带思考模式, 思考过程同样计入输出配额;
+    # 本平台是接口答疑, 无需推理链, 故默认请求关闭思考(更快且更省)。
+    # 若上游不接受该参数会自动降级重试(见 app/core/llm.py)。
+    llm_disable_thinking: bool = True
+    llm_max_tokens: int = 4096               # 单次回复最大长度(为思考配额留余量)
+
     # ================= 类别显示名映射(可选) =================
     # 类别本身始终从模型(model.names)读取, 这里只是可选的"显示名"翻译。
     # 留空 = 直接显示模型原始类别名(如 hd / hx / hs / sb / other)
@@ -123,18 +144,44 @@ class Settings:
         except Exception:
             return "cpu"
 
+    @property
+    def llm_api_key_effective(self) -> str:
+        """实际生效的密钥: 环境变量优先(不落盘), 其次配置文件。"""
+        return (os.environ.get("LLM_API_KEY") or self.llm_api_key or "").strip()
+
+    @property
+    def llm_ready(self) -> bool:
+        """助手是否可用: 已启用 且 能取到密钥。
+
+        启用但密钥为空时视为未就绪, 前端不渲染入口, 后端直接拒绝请求,
+        避免把 "配置不完整" 暴露成运行期错误。
+        """
+        return bool(self.llm_enabled and self.llm_api_key_effective)
+
     def to_dict(self) -> Dict[str, Any]:
-        """导出可序列化的配置(供前端展示)。"""
+        """导出可序列化的配置(供前端展示)。
+
+        安全: 密钥类字段一律掩码后下发 —— /api/config 是公开接口,
+        绝不能让 API Key 随配置回显。
+        """
         data: Dict[str, Any] = {}
         for f in fields(self):
             v = getattr(self, f.name)
+            if f.name in _SECRET_FIELDS:
+                data[f.name] = "***" if v else ""
+                continue
             if isinstance(v, Path):
                 v = v.as_posix()
             elif isinstance(v, tuple):
                 v = list(v)
             data[f.name] = v
         data["device_resolved"] = self.device_resolved
+        data["llm_ready"] = self.llm_ready
         return data
+
+
+# 对外回显时必须掩码的字段(避免密钥泄露到前端与日志)
+_SECRET_FIELDS: frozenset = frozenset({"llm_api_key"})
 
 
 # 环境变量 -> 配置字段 映射
@@ -148,6 +195,11 @@ _ENV_MAP: Dict[str, str] = {
     "HOST": "host",
     "PORT": "port",
     "MAX_UPLOAD_MB": "max_upload_mb",
+    # AI 助手: 密钥建议只走环境变量, 不写入 config.yaml
+    "LLM_ENABLED": "llm_enabled",
+    "LLM_API_KEY": "llm_api_key",
+    "LLM_BASE_URL": "llm_base_url",
+    "LLM_MODEL": "llm_model",
 }
 
 

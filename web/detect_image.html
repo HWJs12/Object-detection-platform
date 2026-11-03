@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>图片检测 - 水下海洋生物目标检测与分析系统</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/detection.css">
+    <link rel="stylesheet" href="css/visuals.css">
 </head>
 <body>
 <header class="navbar">
@@ -14,7 +16,9 @@
             <a href="index.html">首页</a>
             <a href="detect_image.html">图片检测</a>
             <a href="detect_video.html">视频检测</a>
+            <a href="survey_map.html">养殖地形图</a>
             <a href="records.html">检测记录</a>
+            <a href="gallery.html">目标图库</a>
             <a href="stats.html">数据统计</a>
             <a href="system.html">系统状态</a>
             <a href="api_docs.html">接口文档</a>
@@ -23,16 +27,47 @@
     </div>
 </header>
 
-<div class="container">
+<div class="container detection-workspace">
     <h1 class="page-title">图片检测</h1>
-    <p class="page-desc">上传一张或多张水下图片, 系统调用 GSCNet 推理, 检测框支持按类别筛选</p>
+    <p class="page-desc">选择调查站点并上传影像，逐张查看检测进度与识别结果。</p>
 
     <div id="alert-box"></div>
 
-    <div class="card">
-        <h2 class="card-title">上传图片</h2>
+    <div class="card detection-setup">
+        <div class="detection-setup-heading"><div><span class="detection-kicker">DETECTION WORKSPACE</span><h2>新建图片检测</h2><p>按顺序选择站点、素材与检测参数</p></div><span class="detection-status">本地模型分析</span></div>
+        <section class="detection-step" aria-labelledby="station-step-title">
+            <h3 id="station-step-title"><span>01</span> 选择调查站点</h3>
+        <div class="row" style="margin-top:16px; align-items:flex-end;">
+            <div class="field survey-field">
+                <label for="survey-map">养殖所</label>
+                <select id="survey-map" aria-label="选择养殖所"><option value="1">正在读取养殖所…</option></select>
+            </div>
+            <div class="field survey-field">
+                <label for="survey-site">调查站点</label>
+                <select id="survey-site" required aria-describedby="station-picker-status"><option value="">正在加载地图站点…</option></select>
+            </div>
+            <div class="field survey-field">
+                <label>样方 / 断面</label>
+                <input type="text" id="survey-transect" maxlength="64" placeholder="如 T1">
+            </div>
+            <div class="field survey-field" style="max-width:110px;">
+                <label>水深 (m)</label>
+                <input type="number" id="survey-depth" min="0" step="0.1" placeholder="可选">
+            </div>
+            <div class="field survey-field">
+                <label>调查轮次</label>
+                <input type="text" id="survey-round" maxlength="32" placeholder="如 2026春">
+            </div>
+        </div>
+        <p class="small muted" style="margin:6px 0 0;">
+            <span id="station-picker-status" role="status">调查站点必选；样方、水深与轮次可选。</span> <a id="station-map-link" href="survey_map.html">前往养殖地形图建立站点</a> · <button type="button" class="station-refresh-link" id="station-picker-refresh">刷新站点</button>
+            批量上传时整批共用同一组维度, 需要区分时请按站点分批提交。
+        </p>
+        </section>
+        <section class="detection-step" aria-labelledby="upload-step-title">
+            <h3 id="upload-step-title"><span>02</span> 上传图片</h3>
         <div class="upload-area" id="upload-area">
-            <div class="icon">🖼️</div>
+            <div class="icon" aria-hidden="true">＋</div>
             <div>点击选择图片(支持多选), 或将图片拖拽到此处</div>
             <div class="hint">支持 JPG / PNG / BMP / WEBP / TIFF, 单文件不超过
                 <span id="max-size">300</span>MB, 单次最多 <span id="max-batch">20</span> 张</div>
@@ -40,6 +75,10 @@
         </div>
         <div class="file-name hidden" id="file-name"></div>
 
+        </section>
+
+        <section class="detection-step detection-actions" aria-labelledby="params-step-title">
+            <h3 id="params-step-title"><span>03</span> 检测参数与操作</h3>
         <div class="row" style="margin-top:16px; align-items:flex-end;">
             <div class="field slider-field">
                 <label>置信度阈值 <b id="conf-value">0.25</b></label>
@@ -50,6 +89,22 @@
             <button class="btn btn-secondary" id="btn-reset">重置</button>
             <span class="small muted" id="progress-text"></span>
         </div>
+        </section>
+    </div>
+
+    <div class="card hidden" id="queue-card">
+        <h2 class="card-title">图片任务队列
+            <span class="row">
+                <button class="btn btn-sm btn-secondary" id="btn-cancel-pending" disabled>取消全部等待项</button>
+                <button class="btn btn-sm" id="btn-retry-failed" disabled>仅重试失败项</button>
+            </span>
+        </h2>
+        <p class="small muted">逐张处理；取消仅作用于尚未开始的图片。重试沿用本批次参数，已完成结果保留。</p>
+        <p class="small muted" id="queue-status" role="status"></p>
+        <div class="table-wrap"><table>
+            <thead><tr><th>序号</th><th>图片</th><th>状态 / 进度</th><th>操作</th></tr></thead>
+            <tbody id="queue-body"></tbody>
+        </table></div>
     </div>
 
     <div class="card hidden" id="summary-card">
@@ -77,7 +132,7 @@
                 点击任意图片可查看大图与检测明细
             </span>
             <button class="btn btn-sm" id="btn-report" disabled>
-                下载检测报告 (PDF)
+                成功图片报告 (PDF)
             </button>
             <label class="export-toggle" title="勾选后可把本次检测结果导出为训练用标注数据">
                 <input type="checkbox" id="chk-export-tags">
@@ -92,6 +147,7 @@
                 <button class="btn btn-sm btn-secondary" id="btn-export-tags" disabled>下载</button>
             </span>
         </h2>
+        <p class="small muted">PDF 报告和标签导出仅包含本次成功检测的图片；失败图片及其错误信息请在下方查看。</p>
         <div class="result-grid" id="result-grid"></div>
     </div>
 </div>
@@ -99,6 +155,9 @@
 <div id="modal-root"></div>
 
 <script src="js/common.js"></script>
+<script src="js/station_picker.js"></script>
 <script src="js/image.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/visuals.js"></script>
 </body>
 </html>

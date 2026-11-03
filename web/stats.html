@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>数据统计 - 水下海洋生物目标检测与分析系统</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/visuals.css">
 </head>
 <body>
 <header class="navbar">
@@ -14,7 +16,9 @@
             <a href="index.html">首页</a>
             <a href="detect_image.html">图片检测</a>
             <a href="detect_video.html">视频检测</a>
+            <a href="survey_map.html">养殖地形图</a>
             <a href="records.html">检测记录</a>
+            <a href="gallery.html">目标图库</a>
             <a href="stats.html">数据统计</a>
             <a href="system.html">系统状态</a>
             <a href="api_docs.html">接口文档</a>
@@ -23,33 +27,165 @@
     </div>
 </header>
 
-<div class="container">
+<div class="container stats-page">
+    <div class="stats-kicker">数据中心 · 检测分析</div>
     <h1 class="page-title">数据统计</h1>
     <p class="page-desc">基于数据库中的真实检测记录动态生成, 无示例数据</p>
 
     <div id="alert-box"></div>
+    <div id="dashboard-error"></div>
 
     <div class="grid-4">
         <div class="stat-card">
             <div class="label">今日检测次数</div>
             <div class="value" id="stat-today">0</div>
-            <div class="extra" id="stat-today-objects">今日检出目标 0 个</div>
+            <div class="extra" id="stat-today-objects">今日记录检出计数 0</div>
+            <div style="margin-top:6px;" data-caliber="overview.today_count"></div>
         </div>
         <div class="stat-card">
             <div class="label">累计检测次数</div>
             <div class="value" id="stat-total">0</div>
             <div class="extra" id="stat-total-detail">图片 0 / 视频 0</div>
+            <div style="margin-top:6px;" data-caliber="overview.total_count"></div>
         </div>
         <div class="stat-card">
-            <div class="label">检测目标总数</div>
+            <div class="label">累计记录检出计数</div>
             <div class="value" id="stat-objects">0</div>
-            <div class="extra">全部记录累计</div>
+            <div class="extra">按记录口径累计，重复处理会累加</div>
+            <div style="margin-top:6px;" data-caliber="overview.total_objects"></div>
         </div>
         <div class="stat-card">
             <div class="label">不同类别数量</div>
             <div class="value" id="stat-classes">0</div>
             <div class="extra" id="stat-avg">平均推理耗时 0 ms</div>
+            <div style="margin-top:6px;" data-caliber="overview.class_count"></div>
         </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+        <h2 class="card-title">
+            今日检测数据
+            <span class="row">
+                <select id="today-hours" style="min-width:130px;">
+                    <option value="24" selected>最近 24 小时</option>
+                    <option value="6">最近 6 小时</option>
+                    <option value="48">最近 48 小时</option>
+                    <option value="168">最近 7 天</option>
+                </select>
+            </span>
+        </h2>
+        <details class="stats-scope"><summary>滚动窗口说明（与自然日不同）</summary>
+            <p class="small muted" style="margin-top:0;">
+            按记录创建时间的滚动窗口统计成功检测。窗口以“最近 N 小时”切分而非自然日零点，
+            避免跨零点作业被切成两段；与上方“今日检测次数”（自然日口径）并不相同。
+        </p>
+        </details>
+        <div id="today-error"></div>
+        <div class="grid-4">
+            <div class="stat-card">
+                <div class="label">窗口内检测记录</div>
+                <div class="value" id="today-records">-</div>
+                <div class="extra" id="today-since">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">窗口内检出计数</div>
+                <div class="value" id="today-objects">-</div>
+                <div class="extra" id="today-objects-note">记录级 total_objects 之和</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">累计检出框</div>
+                <div class="value" id="today-detections">-</div>
+                <div class="extra">所有已处理帧的检出框求和</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">覆盖站点数</div>
+                <div class="value" id="today-sites">-</div>
+                <div class="extra">含“未标注站点”</div>
+            </div>
+        </div>
+        <div class="grid-2" style="margin-top:6px;">
+            <div>
+                <h3 class="small muted" style="margin:12px 0 4px;">窗口内各时段产出</h3>
+                <div class="chart-box" style="height:220px;"><canvas id="chart-today-hour"></canvas></div>
+            </div>
+            <div>
+                <h3 class="small muted" style="margin:12px 0 4px;">窗口内计数口径构成</h3>
+                <div class="chart-box" style="height:220px;"><canvas id="chart-today-mode"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">
+            站点 / 样方维度分析
+            <span class="row">
+                <select id="site-days" style="min-width:130px;">
+                    <option value="0" selected>全部历史</option>
+                    <option value="30">最近 30 天</option>
+                    <option value="14">最近 14 天</option>
+                    <option value="7">最近 7 天</option>
+                </select>
+            </span>
+        </h2>
+        <details class="stats-scope"><summary>站点分组与去重口径</summary>
+            <p class="small muted" style="margin-top:0;">
+            按记录的站点分组, 样方作为第二层展开。默认同一源素材只取最新一次成功检测,
+            未填写站点的记录归入“未标注站点”并保留计数。数值未做面积或努力量归一,
+            跨站点比较前请结合调查时长与样方面积。
+        </p>
+        </details>
+        <div id="sites-error"></div>
+        <div id="sites-list"><p class="muted small">加载中...</p></div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">
+            置信度分布看板
+            <span class="row">
+                <select id="conf-days" style="min-width:130px;">
+                    <option value="0" selected>全部历史</option>
+                    <option value="30">最近 30 天</option>
+                    <option value="14">最近 14 天</option>
+                    <option value="7">最近 7 天</option>
+                </select>
+            </span>
+        </h2>
+        <details class="stats-scope"><summary>置信度口径（视频明细为采样）</summary>
+            <p class="small muted" style="margin-top:0;">
+            统计对象是检出框的置信度(每个框一行), 不是记录的置信度。左图为分布形态,
+            右图为“若把阈值提高到 x, 还剩多少框”, 用于判断当前阈值是否偏松或偏严。
+            视频明细存在入库采样上限, 视频部分为抽样口径。
+        </p>
+        </details>
+        <div id="confidence-error"></div>
+        <div class="summary-line" style="margin-bottom:10px;">
+            <span>检出框总数: <span id="conf-total">-</span></span>
+            <span>中位数: <b id="conf-median">-</b></span>
+            <span>均值: <b id="conf-mean">-</b></span>
+            <span>P10 / P90: <b id="conf-p10">-</b> / <b id="conf-p90">-</b></span>
+            <span id="conf-sample-note" class="small muted"></span>
+        </div>
+        <div class="grid-2">
+            <div>
+                <h3 class="small muted" style="margin:6px 0 4px;">置信度分布</h3>
+                <div class="chart-box" style="height:240px;"><canvas id="chart-conf-hist"></canvas></div>
+            </div>
+            <div>
+                <h3 class="small muted" style="margin:6px 0 4px;">阈值敏感性</h3>
+                <div class="chart-box" style="height:240px;"><canvas id="chart-conf-sens"></canvas></div>
+            </div>
+        </div>
+        <div class="table-wrap" style="margin-top:10px;">
+            <table>
+                <thead><tr><th>若阈值提高到</th><th>保留检出框</th><th>占总量</th></tr></thead>
+                <tbody id="conf-sens-body"><tr><td colspan="3" class="empty">加载中...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title">各卡片数字的口径说明</h2>
+        <div id="caliber-list"></div>
     </div>
 
     <div class="card" style="margin-top:18px;">
@@ -72,38 +208,42 @@
     </div>
 
     <div class="card">
-        <h2 class="card-title">各类别检出数量随时间变化</h2>
+        <h2 class="card-title">各类别检出计数随时间变化</h2>
         <div class="chart-box"><canvas id="chart-class-trend"></canvas></div>
     </div>
 
     <div class="card">
         <h2 class="card-title">
-            生态多样性指标
+            图片检出类别分布指标
             <span class="row">
-                <span class="small muted" id="ecology-scope">统计范围: 全部历史</span>
-                <select id="ecology-days" style="min-width:130px;">
+                <span class="small muted" id="ecology-scope">最新图片检测日期：全部历史</span>
+                <select id="ecology-days" style="min-width:150px;">
                     <option value="0" selected>全部历史</option>
                     <option value="30">最近 30 天</option>
                     <option value="14">最近 14 天</option>
                     <option value="7">最近 7 天</option>
+                    <option value="24h">最近 24 小时</option>
                 </select>
             </span>
         </h2>
-        <p class="small muted" style="margin-top:0;">
-            由各类别检出数量按生态学通用公式计算 (Shannon-Wiener / Simpson / Pielou / Margalef),
-            为纯统计结果, 不涉及模型推理。指标解读仅作辅助参考。
+        <details class="stats-scope"><summary>去重图片指标不代表实际生态质量</summary>
+            <p class="small muted" style="margin-top:0;">
+            每个源图片仅采用最新一次成功检测，按检测日期筛选，不包含视频。
+            以下指数仅描述模型检出类别与框数分布，不代表实际物种数、独立个体总量或生态质量；不同图片仍可能拍到同一目标。
         </p>
+        </details>
+        <div id="ecology-error"></div>
 
         <div class="grid-4">
             <div class="stat-card">
-                <div class="label">Shannon 多样性 H'</div>
+                <div class="label">Shannon 类别分布 H'</div>
                 <div class="value" id="eco-shannon">-</div>
                 <div class="extra" id="eco-shannon-note">-</div>
             </div>
             <div class="stat-card">
-                <div class="label">Simpson 优势度 D</div>
+                <div class="label">Simpson 分布指数 D</div>
                 <div class="value" id="eco-simpson">-</div>
-                <div class="extra">随机取两个个体属于不同类别的概率</div>
+                <div class="extra">1 − 各检出类别占比平方之和</div>
             </div>
             <div class="stat-card">
                 <div class="label">Pielou 均匀度 J'</div>
@@ -111,15 +251,15 @@
                 <div class="extra" id="eco-pielou-note">-</div>
             </div>
             <div class="stat-card">
-                <div class="label">Margalef 丰富度</div>
+                <div class="label">Margalef 类别丰富度</div>
                 <div class="value" id="eco-margalef">-</div>
-                <div class="extra" id="eco-margalef-note">类别数 / 个体总数已归一</div>
+                <div class="extra" id="eco-margalef-note">由检出类别数与框数计算</div>
             </div>
         </div>
 
         <div class="summary-line" style="margin-top:14px;">
-            <span id="eco-dominant">优势种: -</span>
-            <span id="eco-total">个体总数: -</span>
+            <span id="eco-dominant">检出最多类别: -</span>
+            <span id="eco-total">去重图片检出框数: -</span>
             <span id="eco-richness">类别数: -</span>
         </div>
 
@@ -129,7 +269,8 @@
                 <div class="chart-box"><canvas id="chart-abundance"></canvas></div>
             </div>
             <div>
-                <h3 class="small muted" style="margin:12px 0 4px;">多样性指数随时间变化</h3>
+                <!-- 静态标题用中性措辞: 时间粒度由接口粒度决定(按天或按小时), 具体口径见图内标题 -->
+                <h3 class="small muted" style="margin:12px 0 4px;">图片类别分布随时间变化</h3>
                 <div class="chart-box"><canvas id="chart-eco-trend"></canvas></div>
             </div>
         </div>
@@ -142,7 +283,7 @@
 
     <div class="grid-2">
         <div class="card">
-            <h2 class="card-title">各类别目标数量占比</h2>
+            <h2 class="card-title">各类别检出计数占比<span class="small muted" id="class-scope"></span></h2>
             <div class="chart-box"><canvas id="chart-pie"></canvas></div>
         </div>
         <div class="card">
@@ -152,7 +293,7 @@
     </div>
 
     <div class="card">
-        <h2 class="card-title">各类别累计数量明细</h2>
+        <h2 class="card-title">各类别检出计数明细<span class="small muted" id="class-detail-scope"></span></h2>
         <div class="tag-list" id="class-tags"><span class="muted small">暂无数据</span></div>
     </div>
 
@@ -174,5 +315,7 @@
 <script src="vendor/chart.js"></script>
 <script src="js/common.js"></script>
 <script src="js/stats.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/visuals.js"></script>
 </body>
 </html>

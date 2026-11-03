@@ -9,16 +9,16 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict
 
 from fastapi import APIRouter, FastAPI, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import detect, model, records, stats, system
+from app.api import chat, compare, detect, gallery, model, records, stations, stats, system
 from app.core.yolo_engine import engine
 from app.db.database import close_connection, init_db
 from app.utils.exceptions import AppError
 from app.utils.response import ok
+from app.utils.web_guard import WebGuardMiddleware
 from config import BASE_DIR, settings
 
 logging.basicConfig(
@@ -78,8 +78,13 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("未检测到模型权重文件, 检测接口将返回明确错误")
 
-    yield
-    close_connection()
+    try:
+        yield
+    finally:
+        from app.core.background_jobs import image_requests, video_jobs
+        await video_jobs.shutdown()
+        await image_requests.shutdown()
+        close_connection()
 
 
 app = FastAPI(
@@ -91,13 +96,11 @@ app = FastAPI(
     docs_url=None,
 )
 
-# 本地开发, 允许跨域(前端若用其它端口打开也不会被拦截)
+# 不提供账号体系的桌面工具只接受本机请求; 同时限制multipart和JSON请求体。
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    WebGuardMiddleware,
+    max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
+    max_batch_bytes=settings.max_upload_mb * 3 * 1024 * 1024,
 )
 
 # ---------------- 统一异常处理 ----------------
@@ -151,45 +154,13 @@ async def health() -> Dict[str, Any]:
     })
 
 
-@app.post("/api/system/cleanup", summary="手动触发资源清理", tags=["系统"])
 async def system_cleanup(
     days: int = Query(0, ge=0, le=3650, description="过期天数, 0 表示按配置值"),
     duplicates: bool = Query(True, description="是否一并清理内容重复的历史文件"),
     dry_run: bool = Query(False, description="只统计不删除, 用于预检"),
 ) -> Dict[str, Any]:
-    """手动清理磁盘: 过期文件及其记录 + 重复副本 + 上传残留。
-
-    有视频任务正在运行时拒绝执行, 避免删除任务正在使用的文件。
-    """
-    from fastapi.concurrency import run_in_threadpool
-
-    from app.core.cleaner import cleanup_duplicates, cleanup_expired, purge_tmp_files
-    from app.core.video_task import task_manager
-    from app.utils.exceptions import AppError
-
-    if len(task_manager) > 0:
-        raise AppError(
-            f"当前有 {len(task_manager)} 个视频任务在队列中, 请等待结束后再清理",
-            code="CLEANUP_BUSY",
-            status_code=409,
-        )
-
-    result = await run_in_threadpool(
-        lambda: {
-            "expired": cleanup_expired(days or None),
-            "duplicates": cleanup_duplicates(dry_run=dry_run) if duplicates else {"count": 0},
-        }
-    )
-    tmp_removed = 0 if dry_run else await run_in_threadpool(purge_tmp_files)
-
-    freed = result["expired"].get("freed_bytes", 0) + result["duplicates"].get("freed_bytes", 0)
-    return ok({
-        **result,
-        "tmp_removed": tmp_removed,
-        "freed_bytes": freed,
-        "freed_mb": round(freed / 1024 / 1024, 2),
-        "dry_run": dry_run,
-    }, f"清理完成{' (预检, 未实际删除)' if dry_run else ''}, 可回收 {freed / 1024 / 1024:.1f} MB")
+    """Compatibility callable; the system router owns the single HTTP route."""
+    return await system.full_cleanup(days=days, duplicates=duplicates, dry_run=dry_run)
 
 
 # ---------------- 存储治理 ----------------
@@ -345,10 +316,14 @@ async def custom_swagger_ui(request: Request) -> HTMLResponse:
 app.include_router(system.router)
 app.include_router(detect.ws_router)
 app.include_router(detect.router)
+app.include_router(gallery.router)
+app.include_router(stations.router)
 app.include_router(records.router)
 app.include_router(records.report_router)
+app.include_router(compare.router)
 app.include_router(stats.router)
 app.include_router(model.router)
+app.include_router(chat.router)
 
 # ---------------- 静态资源 ----------------
 # /data -> 上传与结果文件; / -> 前端页面(必须最后挂载)

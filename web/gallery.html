@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>目标图库 - 水下海洋生物检测系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/gallery.css">
+    <link rel="stylesheet" href="css/visuals.css">
+</head>
+<body>
+<header class="navbar">
+    <div class="nav-inner">
+        <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+        <nav>
+            <a href="index.html">首页</a>
+            <a href="detect_image.html">图片检测</a>
+            <a href="detect_video.html">视频检测</a>
+            <a href="survey_map.html">养殖地形图</a>
+            <a href="records.html">检测记录</a>
+            <a href="gallery.html">目标图库</a>
+            <a href="stats.html">数据统计</a>
+            <a href="system.html">系统状态</a>
+            <a href="api_docs.html">接口文档</a>
+        </nav>
+        <span class="nav-status" id="nav-status">加载中...</span>
+    </div>
+</header>
+
+<main class="container gallery-page">
+    <div class="gallery-heading">
+        <div>
+            <div class="gallery-eyebrow">海洋影像 · 检测结果</div>
+            <h1 class="gallery-title">海洋生物目标图库</h1>
+            <p class="page-desc">按类别浏览检测到的目标，点击卡片回到来源记录。</p>
+        </div>
+        <div class="gallery-count"><span>当前筛选</span><strong id="gallery-total">—</strong><small>条目标明细</small></div>
+    </div>
+    <div class="gallery-note">视频仅展示已保存的采样帧明细，同一目标可能重复出现；图库数量不代表实际生物个体数。</div>
+    <section class="card gallery-filter" aria-label="图库筛选">
+        <div class="gallery-filter-grid">
+            <div class="field"><label for="gallery-category">目标类别</label><select id="gallery-category"><option value="">全部类别</option></select></div>
+            <div class="field"><label for="gallery-source">素材类型</label><select id="gallery-source"><option value="">全部素材</option><option value="image">图片</option><option value="video">视频采样帧</option></select></div>
+            <div class="field"><label for="gallery-confidence">最低置信度</label><select id="gallery-confidence"><option value="0">不限</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="0.9">90%</option></select></div>
+            <div class="field"><label for="gallery-order">排序方式</label><select id="gallery-order"><option value="recent">最近检测</option><option value="confidence">置信度从高到低</option></select></div>
+            <div class="field gallery-search"><label for="gallery-keyword">素材名称</label><input id="gallery-keyword" type="text" maxlength="100" placeholder="搜索文件名"></div>
+            <div class="gallery-actions"><button class="btn" id="gallery-apply" type="button">查询</button><button class="btn btn-secondary" id="gallery-reset" type="button">重置</button></div>
+        </div>
+    </section>
+    <div class="gallery-section-heading"><h2>检测目标</h2><span id="gallery-range" class="small muted"></span></div>
+    <p id="gallery-message" class="gallery-message" role="status">正在加载目标…</p>
+    <div id="gallery-grid" class="gallery-grid"></div>
+    <div id="gallery-pagination" class="pagination" aria-label="图库分页"></div>
+</main>
+<script src="js/common.js"></script>
+<script src="js/gallery.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/visuals.js"></script>
+</body>
+</html>

@@ -25,8 +25,8 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
+    Flowable,
     Image,
-    KeepTogether,
     PageBreak,
     PageTemplate,
     Paragraph,
@@ -131,19 +131,14 @@ def _analyse(item: Dict[str, Any], batch_avg_conf: float | None = None) -> List[
     dets: List[Dict[str, Any]] = item.get("detections") or []
 
     if not total:
-        lines.append("本图未检出任何目标。可能原因: 目标尺寸小于模型感受野、置信度阈值偏高, "
-                     "或画面中确实不存在训练类别对应的生物。建议尝试将置信度阈值下调后复检。")
+        lines.append("本图未检出达到当前阈值的训练类别目标。未检出不代表实际不存在目标, "
+                     "需结合原图和人工标注检查漏检。")
         return lines
 
-    # 1) 数量与密度
+    # 1) 只陈述画面检出框数; 未经面积标定不能推断实际生物密度。
     width = item.get("width") or 0
     height = item.get("height") or 0
-    density = ""
-    if width and height:
-        per_mp = total / (width * height / 1_000_000)
-        density = f", 约 {per_mp:.1f} 个 / 百万像素"
-    lines.append(f"本图共检出 {total} 个目标{density}, 属{'高' if total >= 15 else '中' if total >= 5 else '低'}"
-                 f"密度场景。")
+    lines.append(f"本图共检出 {total} 个目标框; 未提供实际视野面积, 不计算生物密度。")
 
     # 2) 类别构成
     if counts:
@@ -154,10 +149,7 @@ def _analyse(item: Dict[str, Any], batch_avg_conf: float | None = None) -> List[
         if rest:
             others = ", ".join(f"{c['class_name']} {c['count']} 个" for c in rest[:4])
             desc += f"; 其余为 {others}"
-        lines.append(desc + f"。共出现 {len(top)} 个类别, "
-                     + ("类别组成较单一, 群落结构集中。" if len(top) == 1
-                        else "类别多样性尚可, 呈现多物种共存特征。" if len(top) <= 3
-                        else "类别组成丰富, 群落多样性高。"))
+        lines.append(desc + f"。共检出 {len(top)} 个模型类别, 仅描述本图的模型输出分布。")
 
     # 3) 置信度水平
     if dets:
@@ -165,13 +157,11 @@ def _analyse(item: Dict[str, Any], batch_avg_conf: float | None = None) -> List[
         avg = sum(confs) / len(confs)
         high = sum(1 for c in confs if c >= 0.7)
         low = sum(1 for c in confs if c < 0.4)
-        level = "高" if avg >= 0.7 else "中等" if avg >= 0.5 else "偏低"
-        lines.append(f"检测置信度均值 {avg:.3f}, 整体可信度{level}; "
+        lines.append(f"模型输出置信度均值 {avg:.3f}; "
                      f"其中 {high} 个目标的置信度达到 0.70 以上, "
-                     f"{low} 个低于 0.40。")
+                     f"{low} 个低于 0.40。置信度不等于经验证的准确率。")
         if low:
-            lines.append(f"存在 {low} 个低置信度目标, 多见于目标遮挡、水体浑浊或光照不足导致的"
-                         f"轮廓不完整, 建议结合原始影像人工复核。")
+            lines.append(f"存在 {low} 个低置信度目标, 建议结合原始影像人工复核, 不据此推断成像原因。")
 
     # 4) 尺寸分布
     if dets:
@@ -189,9 +179,9 @@ def _analyse(item: Dict[str, Any], batch_avg_conf: float | None = None) -> List[
     if batch_avg_conf is not None and dets:
         item_avg = sum(float(d.get("confidence") or 0) for d in dets) / len(dets)
         if item_avg - batch_avg_conf > 0.08:
-            lines.append("本图置信度高于本批次平均水平, 成像质量较好。")
+            lines.append("本图模型输出置信度高于本批次平均值, 仍需人工核对。")
         elif batch_avg_conf - item_avg > 0.08:
-            lines.append("本图置信度低于本批次平均水平, 成像条件相对不利。")
+            lines.append("本图模型输出置信度低于本批次平均值, 建议优先复核。")
 
     return lines
 
@@ -236,16 +226,14 @@ def _batch_conclusion(items: Sequence[Dict[str, Any]]) -> List[str]:
              for it in ok for d in (it.get("detections") or [])]
     if confs:
         avg = sum(confs) / len(confs)
-        lines.append(f"全批次平均置信度 {avg:.3f}, "
-                     + ("检测结果可信度高, 可作为统计依据。" if avg >= 0.7
-                        else "检测结果整体可信, 建议对低置信度目标人工抽检。" if avg >= 0.5
-                        else "平均置信度偏低, 建议核查成像质量或调整置信度阈值后重新检测。"))
+        lines.append(f"全批次模型输出平均置信度 {avg:.3f}。该数值不代表准确率, "
+                     "正式统计前需使用人工真值验证并复核误检与漏检。")
 
     # 相似图提示(同源图片重复上传)
-    names = [it.get("source_name") or "" for it in ok]
+    names = [it.get("source_hash") or it.get("saved_name") or it.get("source_name") or "" for it in ok]
     if len(names) != len(set(names)):
         dupes = {n for n in names if names.count(n) > 1}
-        lines.append(f"注意: 本批含 {len(dupes)} 个同名文件, 可能导致同一目标被重复统计, "
+        lines.append(f"注意: 本批含 {len(dupes)} 组重复素材, 可能导致同一目标被重复统计, "
                      f"汇总数据解读时需留意。")
 
     if failed:
@@ -257,6 +245,20 @@ def _batch_conclusion(items: Sequence[Dict[str, Any]]) -> List[str]:
     lines.append(f"结论: 本次检测覆盖 {len(ok)} 张水下影像, 共识别 {total_objects} 个目标, "
                  f"涉及 {len(agg)} 个类别, 检测流程完整执行。")
     return lines
+
+
+def _provenance_labels(items: Sequence[Dict[str, Any]]) -> Dict[str, str]:
+    """只使用检测时保存的信息; 历史缺失信息不能用当前设置补造。"""
+    models, devices = set(), set()
+    for item in items:
+        snapshot = item.get("inference_snapshot") or {}
+        model = snapshot.get("model") or {}
+        name = model.get("name") or "历史记录未保存"
+        if model.get("sha256"):
+            name += f" [{model['sha256'][:12]}]"
+        models.add(name)
+        devices.add(snapshot.get("device") or "历史记录未保存")
+    return {"model": "; ".join(sorted(models)) or "未保存", "device": "; ".join(sorted(devices)) or "未保存"}
 
 
 # ---------------- PDF 构建 ----------------
@@ -380,17 +382,31 @@ def _kv_table(rows: Sequence[Sequence[str]], st, widths=None) -> Table:
     return table
 
 
+class _RatioBar(Flowable):
+    """用矢量矩形绘制占比, 避免中文字体缺失方块字符。"""
+    def __init__(self, percentage: float):
+        super().__init__()
+        self.width = 52 * mm
+        self.height = 4 * mm
+        self.ratio = max(0.0, min(1.0, percentage / 100))
+
+    def draw(self):
+        self.canv.setFillColor(_C_HEAD_BG)
+        self.canv.rect(0, 0, self.width, self.height, fill=1, stroke=0)
+        self.canv.setFillColor(_C_PRIMARY)
+        self.canv.rect(0, 0, self.width * self.ratio, self.height, fill=1, stroke=0)
+
+
 def _class_table(counts: Sequence[Dict[str, Any]], total: int, st) -> Table:
     header = ["类别", "数量", "占比", "占比示意"]
     data = [[Paragraph(f"<b>{h}</b>", st["small"] if False else st["body"]) for h in header]]
     for c in sorted(counts, key=lambda x: -x["count"]):
         pct = c["count"] / total * 100 if total else 0
-        bar = "█" * max(1, int(pct / 5)) + "░" * max(0, 20 - int(pct / 5))
         data.append([
             Paragraph(str(c["class_name"]), st["body"]),
             Paragraph(str(c["count"]), st["body"]),
             Paragraph(f"{pct:.1f}%", st["body"]),
-            Paragraph(f'<font color="#0e7490">{bar}</font>', st["small"]),
+            _RatioBar(pct),
         ])
     table = Table(data, colWidths=[38 * mm, 22 * mm, 22 * mm, 60 * mm], hAlign="LEFT")
     table.setStyle(TableStyle([
@@ -491,7 +507,7 @@ def _page_footer(canvas, doc) -> None:
     canvas.saveState()
     canvas.setFont(font, 7.5)
     canvas.setFillColor(_C_MUTED)
-    canvas.drawString(20 * mm, 12 * mm, f"基于 GSCNet 的海洋检测平台 · 检测报告")
+    canvas.drawString(20 * mm, 12 * mm, "基于 GSCNet 的海洋检测平台 · 检测报告")
     canvas.drawRightString(A4[0] - 20 * mm, 12 * mm, f"第 {doc.page} 页")
     canvas.setStrokeColor(_C_BORDER)
     canvas.setLineWidth(0.4)
@@ -539,14 +555,17 @@ def build_report_pdf(items: Sequence[Dict[str, Any]],
     if all_confs:
         avg_conf_all = sum(all_confs) / len(all_confs)
 
+    provenance = _provenance_labels(items)
+    thresholds = sorted({str(it.get("conf_threshold")) for it in items if it.get("conf_threshold") is not None})
+
     overview_rows = [
         ("影像数量", f"{len(items)} 张 (成功 {len(ok_items)} / 失败 {len(items) - len(ok_items)})"),
         ("检出目标总数", f"{total_objects} 个"),
         ("识别类别数", str(len({c['class_name'] for it in ok_items for c in (it.get('counts') or [])}))),
         ("平均置信度", f"{avg_conf_all:.3f}" if avg_conf_all is not None else "-"),
-        ("置信度阈值", str(meta.get("conf") or settings.conf_threshold)),
-        ("模型", str(meta.get("model_name") or (settings.model_path_abs.name if settings.model_path_abs else "-"))),
-        ("推理设备", settings.device_resolved),
+        ("置信度阈值", ", ".join(thresholds) or "历史记录未保存"),
+        ("检测时模型", provenance["model"]),
+        ("检测时设备", provenance["device"]),
     ]
     story.append(Paragraph("报告概览", st["h2"]))
     story.append(_kv_table([(k, v) for k, v in overview_rows], st,
@@ -572,7 +591,8 @@ def build_report_pdf(items: Sequence[Dict[str, Any]],
             ("检出目标", f"{int(item.get('total') or 0)} 个"),
             ("图像分辨率", f"{item.get('width') or '-'} × {item.get('height') or '-'}"),
             ("推理耗时", f"{item.get('inference_ms') or '-'} ms"),
-            ("置信度阈值", str(item.get("conf_threshold") or meta.get("conf") or "-")),
+            ("置信度阈值", str(item["conf_threshold"]) if item.get("conf_threshold") is not None else "历史记录未保存"),
+            ("模型版本", _provenance_labels([item])["model"]),
         ]
         counts = item.get("counts") or []
         dets = item.get("detections") or []
@@ -591,7 +611,9 @@ def build_report_pdf(items: Sequence[Dict[str, Any]],
         det_tbl_title = Paragraph("检测明细", st["h3"])
         det_title_h = _flowable_h(det_tbl_title)
 
-        def _upper_height(_img_h: float, _img_flow) -> float:
+        def _upper_height(_img_h: float, _img_flow, *, title_flow=title_flow,
+                          info_tbl=info_tbl, class_tbl=class_tbl,
+                          concl_box=concl_box, det_title_h=det_title_h) -> float:
             h = 0.0
             h += _flowable_h(title_flow)
             h += _flowable_h(info_tbl)
@@ -688,5 +710,139 @@ def build_report_pdf(items: Sequence[Dict[str, Any]],
         ]))
         story.append(t)
 
+    # ---------- 方法学附录 ----------
+    # 放在汇总页之后: 读者先看到结果, 再按需核对口径。附录内容全部来自本批记录
+    # 实际携带的元信息, 缺什么就写明"未记录", 不用默认值填补。
+    story.append(PageBreak())
+    _append_methodology(story, items, ok_items, meta, st)
+
     doc.build(story)
     return buf.getvalue()
+
+
+def _append_methodology(story: List[Any], items: Sequence[Dict[str, Any]],
+                        ok_items: Sequence[Dict[str, Any]],
+                        meta: Dict[str, Any], st) -> None:
+    """报告方法学附录: 数据来源 / 计数口径 / 指标定义 / 适用边界 / 复现要素。
+
+    这一段的作用不是再念一遍结论, 而是让审阅者能判断"这个数字在什么前提下成立"。
+    因此每条都给出定义式与已知局限, 而不是只给名词。
+    """
+    story.append(Paragraph("附录 A · 方法学说明", st["h2"]))
+    story.append(Paragraph(
+        "本附录记录本次报告的数据来源、计数口径与指标定义，供结果复核与方法引用。"
+        "其中“未记录”表示该要素在检测时未写入数据库，系统不会用默认值补推。",
+        st["body"]))
+    story.append(Spacer(1, 6))
+
+    # ---- A.1 数据来源与可复现要素 ----
+    story.append(Paragraph("A.1 数据来源与复现要素", st["h3"]))
+    provenance = _provenance_labels(items)
+    batch_id = meta.get("batch_id") or "-"
+    created = sorted({str(it.get("created_at")) for it in ok_items if it.get("created_at")})
+    hashes = {str(it.get("source_hash")) for it in ok_items if it.get("source_hash")}
+    # 推理参数取自保存时的快照; 不同记录可能不同, 因此逐项去重后并列展示
+    params: set = set()
+    for it in ok_items:
+        snapshot = it.get("inference_snapshot") or {}
+        for key, value in (snapshot.get("parameters") or {}).items():
+            params.add(f"{key}={value}")
+    story.append(_kv_table([
+        ("批次标识", str(batch_id)),
+        ("影像数量", f"{len(items)} 张（成功 {len(ok_items)}，失败 {len(items) - len(ok_items)}）"),
+        ("检测时间", ", ".join(created[:3]) + (" 等" if len(created) > 3 else "") if created else "-"),
+        ("推理模型", provenance["model"]),
+        ("推理设备", provenance["device"]),
+        ("推理参数", ", ".join(sorted(params)) if params else "未记录"),
+        ("源文件哈希", (f"{len(hashes)} 个唯一 SHA-256" if hashes
+                        else "未记录（历史记录无内容哈希，无法据哈希复现同一文件）")),
+    ], st, widths=[34 * mm, 130 * mm]))
+    story.append(Spacer(1, 8))
+
+    # ---- A.2 调查维度 ----
+    story.append(Paragraph("A.2 调查维度", st["h3"]))
+    sites = sorted({str(it.get("site")) for it in ok_items if it.get("site")})
+    transects = sorted({str(it.get("transect")) for it in ok_items if it.get("transect")})
+    depths = sorted({float(it["depth_m"]) for it in ok_items
+                     if it.get("depth_m") not in (None, "")})
+    rounds = sorted({str(it.get("survey_round")) for it in ok_items if it.get("survey_round")})
+    unlabeled = sum(1 for it in ok_items if not it.get("site"))
+    story.append(_kv_table([
+        ("站点", ", ".join(sites) if sites else "未标注"),
+        ("样方 / 断面", ", ".join(transects) if transects else "未标注"),
+        ("水深 (m)", ", ".join(f"{d:g}" for d in depths) if depths else "未记录"),
+        ("调查轮次", ", ".join(rounds) if rounds else "未标注"),
+        ("未标注站点的影像", f"{unlabeled} 张"
+                             + ("（这部分不计入站点间比较）" if unlabeled else "")),
+    ], st, widths=[34 * mm, 130 * mm]))
+    story.append(Spacer(1, 8))
+
+    # ---- A.3 计数口径 ----
+    story.append(Paragraph("A.3 计数口径", st["h3"]))
+    story.append(Paragraph(
+        "同一批影像的数字必须可归因到具体的计数口径，否则不同报告之间无法比较。"
+        "本系统按下列顺序取用，并在每条记录上保存实际采用的那一档：",
+        st["body"]))
+    calibers = [
+        ("图片检出框", "单张影像经模型输出的边界框数量，一框即一个检出目标。",
+         "不涉及跨帧去重，因此不存在“重复计数”问题，但也不代表独立生物个体数。"),
+        ("跨帧轨迹数", "在连续帧上关联同一目标后形成的轨迹条数，用于视频。",
+         "依赖跨帧关联成立；目标出画后重新进入会生成新轨迹，轨迹数可能偏多。"),
+        ("单帧峰值 MaxN", "同一帧内某类别同时出现的最大数量，取全片各帧的最大值。",
+         "只要求帧内不重复计数，不依赖跨帧识别；通常低估实际经过的目标总数。"),
+        ("CPUnx", "MaxN ÷ 调查时长（小时），即单位努力量的相对丰度。",
+         "用于不同时长素材之间的相对比较；时长缺失时不计算，不以 0 代替。"),
+    ]
+    # _kv_table 是两列结构, 这里拆成"定义表 + 局限说明"两段, 避免把局限挤进单元格
+    story.append(_kv_table([(name, definition) for name, definition, _ in calibers],
+                           st, widths=[30 * mm, 134 * mm]))
+    for name, _definition, limit_note in calibers:
+        story.append(Paragraph(f"<b>{name} 的局限</b>：{limit_note}", st["small"]))
+
+    # 本批实际采用的口径分布: 让读者知道这份报告的数字落在哪一档
+    mode_label = {
+        "image_objects": "图片检出框", "tracked_objects": "跨帧轨迹数",
+        "tracking_partial": "单帧峰值 MaxN", "frame_detections": "累计检出框",
+        "legacy_unknown": "历史记录(口径未保存)",
+    }
+    mode_count: Dict[str, int] = {}
+    for it in ok_items:
+        key = mode_label.get(str(it.get("counting_mode")), str(it.get("counting_mode") or "未知"))
+        mode_count[key] = mode_count.get(key, 0) + 1
+    if mode_count:
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(
+            "本批实际采用的口径：" + "；".join(f"{k} {v} 张" for k, v in sorted(mode_count.items())),
+            st["body"]))
+    maxn_items = [it for it in ok_items if int(it.get("maxn_total") or 0) > 0]
+    if maxn_items:
+        story.append(Paragraph(
+            f"其中 {len(maxn_items)} 张给出了单帧峰值 MaxN（最高 {max(it['maxn_total'] for it in maxn_items)} 条）；"
+            "MaxN 为相对丰度，不等同于生物个体数。", st["small"]))
+    story.append(Spacer(1, 6))
+
+    # ---- A.4 指标定义 ----
+    story.append(Paragraph("A.4 指标定义", st["h3"]))
+    # 注意: 不使用 Unicode 下标字符(i 的位置用普通 i), 中文字体缺少这些字形,
+    # 导出 PDF 时会渲染成空白, 公式会被读成 "p ·ln p"。
+    story.append(_kv_table([
+        ("Shannon H'", "H' = -Σ p_i·ln(p_i)，p_i 为类别 i 的检出框数占比, i = 1..S"),
+        ("Simpson D", "D = 1 - Σ p_i^2"),
+        ("Pielou J'", "J' = H' / ln(S)，S 为检出类别数；S ≤ 1 时不可计算"),
+        ("Margalef d", "d = (S - 1) / ln(N)，N 为检出框数；N ≤ 1 时不可计算"),
+        ("平均置信度", "Σ confidence / 检出框数，仅描述模型输出，不是准确率"),
+    ], st, widths=[34 * mm, 130 * mm]))
+    story.append(Spacer(1, 8))
+
+    # ---- A.5 适用边界 ----
+    story.append(Paragraph("A.5 适用边界与已知局限", st["h3"]))
+    boundaries = [
+        "本报告的类别与计数来自模型推理结果，未经人工逐框核验；置信度是模型自评，不等同于识别准确率。",
+        "检出类别数不等于实际物种数：模型类别体系之外的生物不会被识别，稀有物种也可能漏检。",
+        "检出框数不等于个体总量：图片之间可能拍到同一目标，视频中同一目标可能被多次检出。",
+        "相对丰度指标适用于同一采集条件下的比较；跨设备、跨站点、跨季节的绝对值不具可比性。",
+        "同一素材的重复检测在批次统计中会重复累加，需要在站点维度或去重口径下另行统计。",
+        "报告不对生态质量、种群健康或保护等级作出判断，相关结论需结合人工调查与统计检验。",
+    ]
+    story.append(_conclusion_box(boundaries, st))
+

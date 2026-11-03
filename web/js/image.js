@@ -4,13 +4,85 @@ let selectedFiles = [];
 let results = [];                    // 后端返回的结果项
 const hiddenClasses = new Set();     // 被隐藏的类别(仅影响显示)
 const imageCache = new Map();        // 下标 -> 已加载的原图
+let detectionBusy = false;
+let detectionRequest = 0;
+let imageQueue = [];
+let queueSnapshot = null;
+let queueStartedAt = 0;
+let queueElapsedMs = 0;
+
+function newQueue(files) {
+    imageQueue = files.map((file, index) => ({
+        file, index, key: crypto.randomUUID(), state: 'queued', progress: 0,
+        data: null, error: '',
+    }));
+    queueSnapshot = null;
+    queueElapsedMs = 0;
+}
+
+function renderQueue() {
+    const panel = $('#queue-card');
+    if (!panel) return;
+    panel.classList.toggle('hidden', !imageQueue.length);
+    const labels = { queued: '等待中', running: '处理中', success: '已完成', failed: '失败', cancelled: '已取消' };
+    $('#queue-body').innerHTML = imageQueue.map((item) => `<tr>
+        <td>${item.index + 1}</td><td class="queue-filename">${escapeHtml(item.file.name)}</td>
+        <td><span class="queue-state ${item.state}" role="status">${labels[item.state]}</span>
+            ${item.state === 'running' ? `<span class="small muted">${item.progress < 100 ? ` 上传 ${item.progress}%` : ' 推理中'}</span>` : ''}
+            ${item.error ? `<div class="small queue-error">${escapeHtml(item.error)}</div>` : ''}</td>
+        <td>${item.state === 'queued' ? `<button class="btn btn-sm btn-secondary" data-cancel-image="${item.index}">取消</button>` : '—'}</td>
+    </tr>`).join('');
+    const n = (state) => imageQueue.filter((item) => item.state === state).length;
+    $('#queue-status').textContent = `已完成 ${n('success')} / 失败 ${n('failed')} / 已取消 ${n('cancelled')} / 等待 ${n('queued')}`;
+    $('#btn-cancel-pending').disabled = !n('queued');
+    $('#btn-retry-failed').disabled = detectionBusy || !n('failed');
+    if (!detectionBusy) {
+        $('#btn-detect').disabled = !n('queued') && !n('success');
+        $('#btn-detect').textContent = n('success') && !n('queued') ? '重新检测全部' : '开始检测';
+    }
+}
+
+function cancelQueued(index = null) {
+    imageQueue.forEach((item) => {
+        if (item.state === 'queued' && (index === null || item.index === index)) item.state = 'cancelled';
+    });
+    renderQueue();
+}
+
+function renderQueueResults() {
+    const settled = imageQueue.filter((item) => item.state === 'success' || item.state === 'failed');
+    if (!settled.length) return;
+    renderResults({
+        items: settled.map((item) => item.data || { source_name: item.file.name, error: item.error, total: 0 }),
+        total_images: imageQueue.length,
+        success_count: imageQueue.filter((item) => item.state === 'success').length,
+        fail_count: imageQueue.filter((item) => item.state === 'failed').length,
+        total_objects: imageQueue.reduce((total, item) => total + (item.data ? item.data.total : 0), 0),
+    }, Math.round(queueElapsedMs + (detectionBusy ? performance.now() - queueStartedAt : 0)));
+}
+
+const imageLimits = {
+    maxUploadMb: 300, maxBatch: 20,
+    extensions: ['.jpg', '.jpeg', '.png', '.bmp', '.webp', '.tif', '.tiff'],
+};
+
+function setDetectionBusy(busy) {
+    detectionBusy = busy;
+    $('#btn-detect').disabled = busy || !selectedFiles.length;
+    $('#btn-reset').disabled = busy;
+    $('#file-input').disabled = busy;
+    $('#conf-slider').disabled = busy;
+    $('#upload-area').setAttribute('aria-disabled', String(busy));
+    $$('.survey-field input, .survey-field select').forEach((input) => { input.disabled = busy; input.dataset.locked = busy ? '1' : '0'; });
+    renderQueue();
+}
 
 /* ---------------- 文件选择 ---------------- */
 function bindUpload() {
     const area = $('#upload-area');
     const input = $('#file-input');
 
-    area.addEventListener('click', () => input.click());
+    area.addEventListener('click', () => { if (!detectionBusy) input.click(); });
     area.addEventListener('dragover', (e) => {
         e.preventDefault();
         area.classList.add('dragover');
@@ -27,17 +99,29 @@ function bindUpload() {
 }
 
 function selectFiles(fileList) {
-    const files = Array.from(fileList).filter((f) => f.type.startsWith('image/'));
-    if (!files.length) {
-        toast('请选择图片文件', 'error');
+    if (detectionBusy) {
+        toast('图片正在检测，请完成后再选择文件', 'info');
         return;
     }
-    const maxBatch = Number($('#max-batch').textContent) || 20;
+    const selected = Array.from(fileList);
+    const files = selected.filter((f) => imageLimits.extensions.includes((/\.[^.]+$/.exec(f.name)?.[0] || '').toLowerCase()));
+    if (!files.length) {
+        toast('请选择支持的 JPG / PNG / BMP / WEBP / TIFF 图片', 'error');
+        return;
+    }
+    if (files.length !== selected.length) toast(`已忽略 ${selected.length - files.length} 个不支持的文件`, 'info');
+    if (files.some((file) => !file.size || file.size > imageLimits.maxUploadMb * 1024 * 1024)) {
+        toast(`图片不能为空，且每张不能超过 ${imageLimits.maxUploadMb} MB`, 'error');
+        return;
+    }
+    const maxBatch = imageLimits.maxBatch;
     if (files.length > maxBatch) {
         toast(`单次最多检测 ${maxBatch} 张, 已保留前 ${maxBatch} 张`, 'info');
         files.length = maxBatch;
     }
     selectedFiles = files;
+    newQueue(files);
+    renderQueue();
     const totalMb = files.reduce((s, f) => s + f.size, 0) / 1024 / 1024;
     $('#file-name').textContent = files.length === 1
         ? `已选择: ${files[0].name} (${(files[0].size / 1024).toFixed(1)} KB)`
@@ -67,8 +151,9 @@ function resetResults() {
 function setReportButton(enabled, text) {
     const btn = $('#btn-report');
     if (!btn) return;
-    btn.disabled = !enabled;
-    btn.textContent = text || '下载检测报告 (PDF)';
+    btn.disabled = detectionBusy || !enabled;
+    btn.textContent = text || '成功图片报告 (PDF)';
+    btn.title = `仅包含本次成功检测的 ${exportableIds().length} 张图片；失败项不包含在报告中`;
 }
 
 async function downloadReport() {
@@ -78,7 +163,7 @@ async function downloadReport() {
         return;
     }
     const ids = okItems.map((it) => it.record_id);
-    setReportButton(false, `正在生成 ${ids.length} 张报告...`);
+    setReportButton(false, `正在生成 ${ids.length} 张成功图片报告...`);
     const started = performance.now();
 
     try {
@@ -111,11 +196,11 @@ async function downloadReport() {
         a.remove();
         // 释放内存: 触发下载后立即回收 Blob URL
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        toast(`报告已生成: ${ids.length} 张影像, 耗时 ${cost} ms`, 'success');
+        toast(`成功图片报告已生成: ${ids.length} 张，失败项不包含在内，耗时 ${cost} ms`, 'success');
     } catch (err) {
         toast(err.message || '报告生成失败', 'error');
     } finally {
-        setReportButton(true);
+        setReportButton(exportableIds().length > 0);
     }
 }
 
@@ -146,7 +231,7 @@ function syncExportState() {
         chk.checked = false;
         row.classList.add('hidden');
     }
-    btn.disabled = !usable || !chk.checked;
+    btn.disabled = detectionBusy || !usable || !chk.checked;
 }
 
 /** 勾选/取消「导出标签」时展开或收起格式选择 */
@@ -217,34 +302,65 @@ function parseFilename(disposition) {
 }
 
 /* ---------------- 执行检测 ---------------- */
-async function runDetect() {
-    if (!selectedFiles.length) {
-        toast('请先选择图片', 'error');
-        return;
-    }
-    const btn = $('#btn-detect');
-    btn.disabled = true;
-    $('#progress-text').textContent = '正在上传并推理, 首次加载模型会稍慢...';
-    $('#alert-box').innerHTML = '';
-    const started = performance.now();
-
-    const formData = new FormData();
-    selectedFiles.forEach((f) => formData.append('files', f));
-    formData.append('conf', $('#conf-slider').value);
-
-    try {
-        const data = await API.upload('/api/detect/images', formData, (p) => {
-            $('#progress-text').textContent = `上传进度 ${p}%`;
+async function runDetect(retryFailed = false) {
+    if (detectionBusy) return;
+    // Event listeners pass a MouseEvent; only explicit true means retry.
+    retryFailed = retryFailed === true;
+    if (!selectedFiles.length) { toast('请先选择图片', 'error'); return; }
+    if (typeof requireSurveyStation === 'function' && !requireSurveyStation()) return;
+    if (retryFailed) {
+        imageQueue.forEach((item) => {
+            if (item.state === 'failed') { item.state = 'queued'; item.error = ''; item.progress = 0; }
         });
-        const cost = Math.round(performance.now() - started);
-        renderResults(data, cost);
-        toast(`检测完成: 成功 ${data.success_count} 张, 共识别 ${data.total_objects} 个目标`, 'success');
-    } catch (err) {
-        $('#alert-box').innerHTML = `<div class="alert alert-error">检测失败: ${escapeHtml(err.message)}</div>`;
-        toast('检测失败', 'error');
+    } else if (!imageQueue.some((item) => item.state === 'queued')) {
+        if (!imageQueue.some((item) => item.state === 'success')) return;
+        newQueue(selectedFiles);
+    }
+    if (!queueSnapshot) {
+        const survey = new FormData();
+        appendSurvey(survey);
+        queueSnapshot = { confidence: $('#conf-slider').value, survey: Array.from(survey.entries()) };
+    }
+    const requestId = ++detectionRequest;
+    queueStartedAt = performance.now();
+    if (!retryFailed) resetResults();
+    setDetectionBusy(true);
+    $('#alert-box').innerHTML = '';
+    try {
+        for (const item of imageQueue) {
+            if (item.state !== 'queued') continue;
+            item.state = 'running';
+            renderQueue();
+            const form = new FormData();
+            form.append('file', item.file);
+            form.append('conf', queueSnapshot.confidence);
+            form.append('request_key', item.key);
+            queueSnapshot.survey.forEach(([key, value]) => form.append(key, value));
+            $('#progress-text').textContent = `正在处理第 ${item.index + 1} / ${imageQueue.length} 张`;
+            try {
+                item.data = await API.upload('/api/detect/image', form, (progress) => {
+                    if (requestId !== detectionRequest) return;
+                    item.progress = progress;
+                    renderQueue();
+                });
+                item.state = 'success';
+                item.error = '';
+            } catch (err) {
+                item.state = 'failed';
+                item.error = err.message || '检测失败';
+            }
+            renderQueue();
+            renderQueueResults();
+        }
     } finally {
-        btn.disabled = false;
-        $('#progress-text').textContent = '';
+        if (requestId === detectionRequest) {
+            queueElapsedMs += performance.now() - queueStartedAt;
+            setDetectionBusy(false);
+            renderQueueResults();
+            renderQueue();
+            $('#progress-text').textContent = '本轮处理结束；失败图片可单独重试，已完成图片不会重复提交';
+            toast('图片队列处理结束', imageQueue.some((item) => item.state === 'failed') ? 'warning' : 'success');
+        }
     }
 }
 
@@ -301,13 +417,16 @@ function loadThumb(index, wrap) {
     const it = results[index];
     const img = new Image();
     img.onload = () => {
+        if (results[index] !== it) return;
         imageCache.set(index, img);
         const canvas = document.createElement('canvas');
         wrap.innerHTML = '';
         wrap.appendChild(canvas);
         drawDetections(canvas, img, it.detections, { hidden: hiddenClasses });
     };
-    img.onerror = () => { wrap.innerHTML = '<div class="err">原图加载失败</div>'; };
+    img.onerror = () => {
+        if (results[index] === it) wrap.innerHTML = '<div class="err">原图加载失败</div>';
+    };
     img.src = it.original_url;
 }
 
@@ -377,17 +496,34 @@ function openDetail(index) {
 /* ---------------- 初始化 ---------------- */
 document.addEventListener('DOMContentLoaded', () => {
     bindUpload();
-    $('#btn-detect').addEventListener('click', runDetect);
+    $('#btn-detect').addEventListener('click', () => runDetect());
+    $('#btn-retry-failed').addEventListener('click', () => runDetect(true));
+    $('#btn-cancel-pending').addEventListener('click', () => cancelQueued());
+    $('#queue-body').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-cancel-image]');
+        if (button) cancelQueued(Number(button.dataset.cancelImage));
+    });
     $('#btn-report').addEventListener('click', downloadReport);
     $('#chk-export-tags').addEventListener('change', toggleExportRow);
     $('#btn-export-tags').addEventListener('click', downloadLabels);
     $('#btn-reset').addEventListener('click', () => {
+        if (detectionBusy) return;
+        detectionRequest += 1;
         selectedFiles = [];
+        imageQueue = [];
+        queueSnapshot = null;
+        renderQueue();
         $('#file-input').value = '';
         $('#file-name').classList.add('hidden');
         $('#btn-detect').disabled = true;
         $('#alert-box').innerHTML = '';
         resetResults();
+    });
+
+    window.addEventListener('beforeunload', (event) => {
+        if (!detectionBusy) return;
+        event.preventDefault();
+        event.returnValue = '';
     });
 
     const slider = $('#conf-slider');
@@ -396,9 +532,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     API.get('/api/config').then((cfg) => {
-        slider.value = cfg.conf_threshold;
-        $('#conf-value').textContent = Number(cfg.conf_threshold).toFixed(2);
+        if (!detectionBusy && !queueSnapshot) {
+            slider.value = cfg.conf_threshold;
+            $('#conf-value').textContent = Number(cfg.conf_threshold).toFixed(2);
+        }
         $('#max-size').textContent = cfg.max_upload_mb;
         $('#max-batch').textContent = cfg.max_batch_images;
+        imageLimits.maxUploadMb = Number(cfg.max_upload_mb) || 300;
+        imageLimits.maxBatch = Number(cfg.max_batch_images) || 20;
+        if (Array.isArray(cfg.allowed_image_ext)) imageLimits.extensions = cfg.allowed_image_ext;
+        $('#file-input').accept = imageLimits.extensions.join(',');
     }).catch(() => {});
 });

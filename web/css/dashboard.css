@@ -1,0 +1,31 @@
+/* 数据页独立排版：所有数字、图表与口径均由原有脚本提供。 */
+.stats-page { max-width: 1280px; }
+.stats-kicker { color: var(--muted-strong); font-size: 12px; font-weight: 600; letter-spacing: .12em; margin: 4px 0 9px; }
+.stats-page > .page-title { font-size: clamp(24px, 2.5vw, 30px); line-height: 1.25; margin-bottom: 8px; }
+.stats-page > .page-desc { font-size: 14px; margin-bottom: 24px; }
+.stats-page > .grid-4 { margin-bottom: 20px; }
+.stats-page .stat-card { min-width: 0; border-radius: 12px; box-shadow: none; }
+.stats-page > .grid-4 .stat-card { padding: 19px 20px; }
+.stats-page .stat-card .value { font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stats-page .card { padding: 22px 24px; border-radius: 14px; }
+.stats-page .card > .grid-4 .stat-card { background: var(--surface-alt); }
+.stats-page .card-title { font-size: 16px; }
+.stats-page .card > p.small.muted { max-width: 100ch; line-height: 1.7; }
+.stats-page .chart-box { min-width: 0; }
+.stats-page .summary-line { gap: 12px 20px; }
+@media (max-width: 900px) {
+  .stats-page .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .stats-page .card { padding: 18px 16px; }
+  .stats-page .grid-4 { gap: 10px; }
+  .stats-page .stat-card { padding: 14px; }
+  .stats-page .card-title .row { max-width: 100%; }
+}
+@media (max-width: 350px) { .stats-page .grid-4 { grid-template-columns: 1fr; } }
+
+/* 统计口径按需展开，摘要保留重要限制。 */
+.stats-scope { margin: -2px 0 16px; padding: 10px 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-alt); color: var(--muted-strong); }
+.stats-scope summary { cursor: pointer; font-size: 13px; font-weight: 600; line-height: 1.5; }
+.stats-scope summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; border-radius: 3px; }
+.stats-scope p { margin: 9px 0 0 !important; max-width: 100ch; line-height: 1.7; }

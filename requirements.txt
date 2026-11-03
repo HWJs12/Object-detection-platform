@@ -11,6 +11,7 @@ websockets>=12.0
 ultralytics>=8.3.0
 lap>=0.5.12          # 目标跟踪(ByteTrack/BoTSort)依赖的线性分配求解器, 视频检测必需
 opencv-python>=4.9.0
+imageio-ffmpeg>=0.5.1 # 内置 FFmpeg, 导出浏览器可播放的 H.264 视频
 numpy>=1.26.0
 Pillow>=10.0.0
 
@@ -21,4 +22,5 @@ reportlab>=4.0.0     # 检测报告 PDF 生成(按需合成, 不落盘)
 PyYAML>=6.0
 requests>=2.31.0
 aiofiles>=24.1.0
+httpx>=0.27.0        # AI 助手流式对话(异步 HTTP, 避免阻塞事件循环); 未启用助手时不影响运行
 psutil>=5.9.0        # 系统运维面板的进程/主机指标(可选: 缺失时对应字段降级显示)

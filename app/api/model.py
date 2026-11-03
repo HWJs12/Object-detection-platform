@@ -36,7 +36,7 @@ async def model_info() -> Dict[str, Any]:
 async def reload_model() -> Dict[str, Any]:
     """更换权重文件后调用, 强制重新加载。"""
     try:
-        await run_in_threadpool(engine.load, True)
+        await run_in_threadpool(engine.reload)
     except AppError:
         raise
     except Exception as exc:
@@ -51,27 +51,29 @@ async def get_config() -> Dict[str, Any]:
 
 @router.put("/config", summary="更新运行时配置")
 async def update_config(payload: Dict[str, Any] = Body(default={})) -> Dict[str, Any]:
-    """更新推理参数, 立即生效(仅进程内, 重启后回到 config.yaml / 默认值)。"""
-    updated = []
+    """Validate the complete update before applying it; active videos keep their snapshot."""
+    pending = {}
+    integer_fields = {"imgsz", "frame_skip", "video_max_side", "jpeg_quality"}
     for key, value in (payload or {}).items():
         if key not in _UPDATABLE:
             continue
         low, high = _UPDATABLE[key]
         try:
+            if isinstance(value, bool):
+                raise ValueError("boolean is not a numeric configuration value")
             number = float(value)
         except (TypeError, ValueError):
             raise AppError(f"配置项 {key} 必须是数字", code="INVALID_CONFIG")
         if not (low <= number <= high):
             raise AppError(f"配置项 {key} 需在 {low} ~ {high} 之间", code="INVALID_CONFIG")
-        setattr(settings, key, int(number) if key in ("imgsz", "frame_skip", "video_max_side", "jpeg_quality") else number)
-        updated.append(key)
+        if key in integer_fields and not number.is_integer():
+            raise AppError(f"配置项 {key} 必须是整数", code="INVALID_CONFIG")
+        pending[key] = int(number) if key in integer_fields else number
 
-    if not updated:
+    if not pending:
         raise AppError(f"没有可更新的配置项, 支持: {', '.join(_UPDATABLE)}", code="INVALID_CONFIG")
 
-    if "imgsz" in updated:  # 输入尺寸变化后重新预热
-        try:
-            await run_in_threadpool(engine.load, True)
-        except Exception:
-            pass
-    return ok(settings.to_dict(), f"配置已更新: {', '.join(updated)}")
+    # No await between validation and commit: other requests see all-or-nothing.
+    for key, value in pending.items():
+        setattr(settings, key, value)
+    return ok(settings.to_dict(), f"配置已更新: {', '.join(pending)}；运行中的视频保持创建时的参数")

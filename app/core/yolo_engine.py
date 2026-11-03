@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -58,12 +57,15 @@ class YoloEngine:
     def __init__(self) -> None:
         self._model = None
         self._model_path: Optional[Path] = None
+        self._model_metadata: Dict[str, Any] = {}
         self._names: Dict[int, str] = {}
         self._load_lock = threading.Lock()
         self._infer_lock = threading.Lock()
         # 目标跟踪使用独立模型实例: ultralytics 的 tracker 回调会注册在 model 上,
         # 与图片 predict 共用同一实例会导致轨迹状态被逐帧图片推理污染, 故隔离。
         self._track_model = None
+        self._track_model_path: Optional[Path] = None
+        self._track_metadata: Dict[str, Any] = {}
         self._track_load_lock = threading.Lock()
         self._track_lock = threading.Lock()
         # 跟踪槽位锁(非阻塞): 全局同一时刻只允许一个视频任务使用跟踪。
@@ -71,10 +73,15 @@ class YoloEngine:
         # 后者 reset_tracker() 会清空前者未结束的轨迹 -> track_id 重新编号 ->
         # 唯一目标数重复累加, 统计结果静默出错。故在此层强制串行。
         self._track_slot = threading.Lock()
+        self._lifecycle_lock = threading.Lock()
+        self._video_runs = 0
+        self._reloading = False
 
     # ---------------- 模型加载 ----------------
     def load(self, force: bool = False):
         """加载模型(带缓存)。force=True 时强制重新加载。"""
+        if force:
+            return self.reload()
         with self._load_lock:
             path = settings.model_path_abs
             if not path:
@@ -94,6 +101,7 @@ class YoloEngine:
                 self._names = dict(model.names) if hasattr(model, "names") else {}
                 self._model = model
                 self._model_path = path
+                self._model_metadata = self._weight_metadata(path)
                 self._warmup(model)
             except ModelLoadError:
                 raise
@@ -101,6 +109,70 @@ class YoloEngine:
                 self._model = None
                 raise ModelLoadError(f"模型加载失败: {exc}")
         return self._model
+
+    @staticmethod
+    def _weight_metadata(path: Path) -> Dict[str, Any]:
+        from app.core.provenance import file_sha256
+
+        return {"name": path.name, "sha256": file_sha256(path), "size_bytes": path.stat().st_size}
+
+    def model_provenance(self, tracking: bool = False) -> Dict[str, Any]:
+        """Metadata captured when the actual in-memory weights were loaded."""
+        if tracking:
+            self._load_track_model()
+            return dict(self._track_metadata)
+        self.load()
+        return dict(self._model_metadata)
+
+    def reload(self):
+        """Build replacements first; publish both instances together or keep both old ones."""
+        with self._lifecycle_lock:
+            if self._video_runs or self._reloading:
+                raise AppError("视频检测正在运行或模型正在加载，请稍后重新加载", code="MODEL_BUSY", status_code=409)
+            self._reloading = True
+        try:
+            path = settings.model_path_abs
+            if not path or not path.exists():
+                raise ModelNotConfiguredError("模型权重文件不存在")
+            from ultralytics import YOLO
+
+            replacement = YOLO(str(path))
+            track_replacement = YOLO(str(path)) if self._track_model is not None or settings.track_enabled else None
+            names = dict(replacement.names) if hasattr(replacement, "names") else {}
+            metadata = self._weight_metadata(path)
+            self._warmup(replacement)
+            # Use the same order as prediction: inference first, then loading.
+            with self._infer_lock, self._load_lock, self._track_lock, self._track_load_lock:
+                self._model = replacement
+                self._model_path = path
+                self._model_metadata = metadata
+                self._names = names
+                self._track_model = track_replacement
+                self._track_model_path = path if track_replacement is not None else None
+                self._track_metadata = dict(metadata) if track_replacement is not None else {}
+            return self._model
+        except AppError:
+            raise
+        except Exception as exc:
+            raise ModelLoadError(f"模型重新加载失败，已保留原模型: {exc}") from exc
+        finally:
+            with self._lifecycle_lock:
+                self._reloading = False
+
+    def begin_video(self, tracking: bool = True) -> None:
+        """Register every video job so a reload cannot change weights mid-task."""
+        with self._lifecycle_lock:
+            if self._reloading:
+                raise AppError("模型正在重新加载，请稍后开始视频检测", code="MODEL_BUSY", status_code=409)
+            if tracking:
+                self.acquire_track_slot()
+            self._video_runs += 1
+
+    def end_video(self, tracking: bool = True) -> None:
+        with self._lifecycle_lock:
+            if tracking:
+                self.release_track_slot()
+            self._video_runs = max(0, self._video_runs - 1)
 
     def _warmup(self, model) -> None:
         """预跑一张空图, 消除首次推理的额外开销。"""
@@ -120,8 +192,15 @@ class YoloEngine:
 
     # ---------------- 推理 ----------------
     def predict(self, image: np.ndarray, conf: Optional[float] = None,
-                iou: Optional[float] = None, imgsz: Optional[int] = None) -> List[Detection]:
+                iou: Optional[float] = None, imgsz: Optional[int] = None,
+                max_det: Optional[int] = None, device: Optional[str] = None) -> List[Detection]:
         """对单张 BGR 图像推理, 返回 Detection 列表。"""
+        return self.predict_with_provenance(image, conf, iou, imgsz, max_det, device)[0]
+
+    def predict_with_provenance(self, image: np.ndarray, conf: Optional[float] = None,
+                                iou: Optional[float] = None, imgsz: Optional[int] = None,
+                                max_det: Optional[int] = None, device: Optional[str] = None):
+        """Capture detections and loaded-weight metadata under the same inference lock."""
         if image is None or getattr(image, "size", 0) == 0:
             raise InferenceError("图像内容为空, 无法推理")
 
@@ -132,19 +211,22 @@ class YoloEngine:
 
         try:
             with self._infer_lock:  # 串行推理, 保证 CPU 环境下的稳定性
+                model = self._model or model
                 results = model.predict(
                     source=image,
                     conf=conf,
                     iou=iou,
                     imgsz=imgsz,
-                    device=settings.device_resolved,
-                    max_det=settings.max_det,
+                    device=settings.device_resolved if device is None else device,
+                    max_det=settings.max_det if max_det is None else max_det,
                     verbose=False,
                 )
+                detections = self._parse(results)
+                metadata = dict(self._model_metadata)
         except Exception as exc:
             raise InferenceError(f"模型推理失败: {exc}")
 
-        return self._parse(results)
+        return detections, metadata
 
     # ---------------- 目标跟踪(视频专用) ----------------
     def _load_track_model(self):
@@ -158,6 +240,8 @@ class YoloEngine:
             try:
                 from ultralytics import YOLO
                 self._track_model = YOLO(str(path))
+                self._track_model_path = path
+                self._track_metadata = self._weight_metadata(path)
             except Exception as exc:
                 raise ModelLoadError(f"跟踪模型加载失败: {exc}")
             return self._track_model
@@ -203,12 +287,20 @@ class YoloEngine:
 
     def track(self, image: np.ndarray, conf: Optional[float] = None,
               iou: Optional[float] = None, imgsz: Optional[int] = None,
-              tracker: Optional[str] = None) -> List[Detection]:
+              tracker: Optional[str] = None, max_det: Optional[int] = None,
+              device: Optional[str] = None) -> List[Detection]:
         """带目标跟踪的单帧推理, 返回带 track_id 的 Detection 列表。
 
         跨帧保持轨迹(persist=True)。若跟踪器不可用(如缺少 lap 依赖),
         自动回退为普通推理, 保证视频检测功能不中断。
         """
+        return self.track_with_status(image, conf, iou, imgsz, tracker, max_det, device)[0]
+
+    def track_with_status(self, image: np.ndarray, conf: Optional[float] = None,
+                          iou: Optional[float] = None, imgsz: Optional[int] = None,
+                          tracker: Optional[str] = None, max_det: Optional[int] = None,
+                          device: Optional[str] = None):
+        """Return detections, whether IDs are valid, and a user-facing fallback warning."""
         if image is None or getattr(image, "size", 0) == 0:
             raise InferenceError("图像内容为空, 无法推理")
 
@@ -226,16 +318,20 @@ class YoloEngine:
                     conf=conf,
                     iou=iou,
                     imgsz=imgsz,
-                    device=settings.device_resolved,
-                    max_det=settings.max_det,
+                    device=settings.device_resolved if device is None else device,
+                    max_det=settings.max_det if max_det is None else max_det,
                     tracker=tracker,
                     verbose=False,
                 )
         except Exception as exc:
             logger.warning("目标跟踪不可用, 已回退为逐帧检测: %s", exc)
-            return self.predict(image, conf=conf, iou=iou, imgsz=imgsz)
+            return (self.predict(image, conf=conf, iou=iou, imgsz=imgsz, max_det=max_det, device=device),
+                    False, "目标跟踪不可用，当前仅统计逐帧检测框，无法提供可靠的跨帧去重数量")
 
-        return self._parse(results)
+        detections = self._parse(results)
+        valid = all(d.track_id is not None for d in detections)
+        warning = None if valid else "部分检测目标没有跟踪编号，本次跨帧去重数量不可用"
+        return detections, valid, warning
 
     def _parse(self, results) -> List[Detection]:
         """解析 ultralytics 结果为 Detection 列表(类别名取自模型)。"""

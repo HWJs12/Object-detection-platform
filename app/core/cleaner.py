@@ -23,9 +23,12 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
+from app.utils.file_utils import active_upload_names, run_if_upload_unleased
 from app.core.storage import (
     cleanup_orphans,
-    purge_trash,
+    file_usage,
+    managed_directory,
+    record_files,
     referenced_names,
     release_record_files,
     storage_audit,
@@ -45,15 +48,21 @@ def _unlink(target: Path | None) -> int:
     if target is None or not target.exists():
         return 0
     try:
-        size = target.stat().st_size
-        target.unlink()
-        return size
+        def unlink() -> int:
+            if managed_directory(target) is None or file_usage(target.name) > 0:
+                return 0
+            size = target.stat().st_size
+            target.unlink()
+            return size
+
+        leased, size = run_if_upload_unleased(target, unlink)
+        return size if leased else 0
     except OSError as exc:
         logger.debug("文件删除失败 %s: %s", target.name, exc)
         return 0
 
 
-def cleanup_expired(retention_days: int | None = None) -> Dict[str, Any]:
+def cleanup_expired(retention_days: int | None = None, dry_run: bool = False) -> Dict[str, Any]:
     """清理超过保留天数的检测记录与其文件。
 
     注意: **孤儿文件的回收与保留期无关** —— 只要无记录引用即回收(见
@@ -61,12 +70,14 @@ def cleanup_expired(retention_days: int | None = None) -> Dict[str, Any]:
 
     Args:
         retention_days: 保留天数, 覆盖配置项; <=0 表示不清理记录本身。
+        dry_run: 仅计算候选项，不修改记录、文件、回收站或审计日志。
     """
     days = settings.file_retention_days if retention_days is None else int(retention_days)
     days = int(days)
 
     files = 0
     freed = 0
+    reclaimed: List[Dict[str, Any]] = []
 
     # ---- 1) 过期记录: 按保留期删除记录 + 其独占文件 ----
     if days > 0:
@@ -77,20 +88,46 @@ def cleanup_expired(retention_days: int | None = None) -> Dict[str, Any]:
             (cutoff,),
         ).fetchall()
 
-        for row in expired:
-            record = dict(row)
-            dao.delete_record(row["id"])
-            # 引用计数: 共享文件不删, 独占文件移入回收站
-            freed += release_record_files(record, to_trash=True)["freed_bytes"]
-            files += 1
+        if dry_run:
+            # A shared file becomes reclaimable only if every referencing row
+            # expires. Count its bytes once, even across several expired rows.
+            retained = get_connection().execute(
+                "SELECT saved_name, result_image, result_video FROM detections WHERE created_at >= ?",
+                (cutoff,),
+            ).fetchall()
+            protected = {Path(name).name for row in retained for name in row if name} | active_upload_names()
+            candidates = {path for row in expired for _, path in record_files(dict(row))}
+            for path in candidates:
+                if path.name in protected or managed_directory(path) is None:
+                    continue
+                try:
+                    if path.is_file():
+                        size = path.stat().st_size
+                        reclaimed.append({"name": path.name, "bytes": size,
+                                          "directory": managed_directory(path)})
+                        freed += size
+                except OSError:
+                    continue
+            files = len(expired)
+        else:
+            for row in expired:
+                record = dict(row)
+                if not dao.delete_record(row["id"]):
+                    continue
+                # 引用计数: 共享文件不删, 独占文件移入回收站
+                released = release_record_files(record, to_trash=True)
+                freed += released["freed_bytes"]
+                reclaimed.extend(released["moved"])
+                files += 1
     else:
         logger.info("记录保留策略已关闭(file_retention_days=%s), 仅回收孤儿文件", days)
 
     # ---- 2) 孤儿文件: 与保留期解耦, 只要无引用即回收 ----
-    orphan = cleanup_orphans(dry_run=False, to_trash=True, min_age_sec=60)
+    orphan = cleanup_orphans(dry_run=dry_run, to_trash=True, min_age_sec=60)
     freed += int(orphan["freed_bytes"])
+    reclaimed.extend(orphan["files"])
 
-    if files or orphan["count"]:
+    if not dry_run and (files or orphan["count"]):
         logger.info(
             "存储清理: 删除记录 %d 条, 回收文件 %d 个 / %.1f MB (记录保留期 %s 天)",
             files, len(orphan["files"]), freed / 1024 / 1024,
@@ -100,19 +137,20 @@ def cleanup_expired(retention_days: int | None = None) -> Dict[str, Any]:
 
     return {
         "records": files,
-        "files": files,
+        "files": len(reclaimed),
         "orphans": orphan["count"],
         "freed_bytes": freed,
         "skipped": False,
+        "reclaimed_files": reclaimed,
     }
 
 
 def _digest_of(path: Path, limit: int = 512 * 1024 * 1024) -> str | None:
-    """计算文件内容 MD5(流式, 不把整个文件读进内存)。"""
+    """计算文件内容 SHA-256(流式, 不把整个文件读进内存)。"""
     try:
         if path.stat().st_size > limit:
             return None
-        digest = hashlib.md5()
+        digest = hashlib.sha256()
         with open(path, "rb") as fp:
             for chunk in iter(lambda: fp.read(_CHUNK), b""):
                 digest.update(chunk)
@@ -121,7 +159,8 @@ def _digest_of(path: Path, limit: int = 512 * 1024 * 1024) -> str | None:
         return None
 
 
-def cleanup_duplicates(dry_run: bool = False) -> Dict[str, Any]:
+def cleanup_duplicates(dry_run: bool = False,
+                       exclude_files: List[Dict[str, Any]] | None = None) -> Dict[str, Any]:
     """清理内容重复的历史文件(治理存量, 去重机制本身只能防新增)。
 
     规则: 每种内容最多保留一份 —— 优先保留"被数据库记录引用"的那份, 未被任何
@@ -133,23 +172,35 @@ def cleanup_duplicates(dry_run: bool = False) -> Dict[str, Any]:
     Returns:
         {"candidates": [(文件名, 大小)], "freed_bytes": n, "count": n}
     """
-    referenced = referenced_names()
+    referenced = referenced_names() | active_upload_names()
+    excluded = {(entry.get("directory"), entry["name"]) for entry in (exclude_files or [])}
 
     keep_digests: set[str] = set()
     orphan_digests: set[str] = set()
     candidates: List[tuple[Path, int]] = []
 
+    paths = []
     for directory in (settings.upload_dir, settings.result_dir):
         if not directory.exists():
             continue
         for path in sorted(directory.iterdir()):
-            if not path.is_file() or path.name.startswith(".tmp_"):
+            key = managed_directory(path)
+            if not path.is_file() or path.name.startswith(".tmp_") or key is None:
                 continue
-            name = path.name
-            if name in referenced:
-                d = _digest_of(path)
-                if d:
-                    keep_digests.add(d)      # 被引用的文件内容必须保留
+            if (key, path.name) in excluded:
+                continue
+            paths.append(path)
+
+    # Discover all referenced content first; ordering of filenames must not
+    # decide whether an orphan duplicate is detected.
+    for path in paths:
+        if path.name in referenced:
+            d = _digest_of(path)
+            if d:
+                keep_digests.add(d)
+    for path in paths:
+        try:
+            if path.name in referenced:
                 continue
             d = _digest_of(path)
             if not d:
@@ -157,7 +208,9 @@ def cleanup_duplicates(dry_run: bool = False) -> Dict[str, Any]:
             if d in keep_digests or d in orphan_digests:
                 candidates.append((path, path.stat().st_size))
             else:
-                orphan_digests.add(d)        # 每种孤儿内容保留第一份
+                orphan_digests.add(d)
+        except OSError:
+            continue
 
     freed = 0
     removed: List[str] = []
@@ -166,15 +219,17 @@ def cleanup_duplicates(dry_run: bool = False) -> Dict[str, Any]:
             freed += size
             removed.append(path.name)
             continue
-        freed += _unlink(path)
-        removed.append(path.name)
+        reclaimed = _unlink(path)
+        if reclaimed:
+            freed += reclaimed
+            removed.append(path.name)
 
-    if candidates and not dry_run:
+    if removed and not dry_run:
         logger.info("重复文件清理: 删除 %d 个副本, 回收 %.1f MB",
-                    len(candidates), freed / 1024 / 1024)
+                    len(removed), freed / 1024 / 1024)
         checkpoint()
 
-    return {"count": len(candidates), "freed_bytes": freed, "files": removed}
+    return {"count": len(removed), "freed_bytes": freed, "files": removed}
 
 
 def purge_tmp_files() -> int:
@@ -189,8 +244,15 @@ def purge_tmp_files() -> int:
             continue
         for path in directory.glob(".tmp_*"):
             try:
-                path.unlink()
-                count += 1
+                def remove_tmp(path: Path = path) -> bool:
+                    if managed_directory(path) is None or file_usage(path.name) > 0:
+                        return False
+                    path.unlink()
+                    return True
+
+                leased, deleted = run_if_upload_unleased(path, remove_tmp)
+                if leased and deleted:
+                    count += 1
             except OSError:
                 pass
         # 0 字节且无记录引用的文件: 必然是中断残骸, 安全清理
@@ -200,8 +262,15 @@ def purge_tmp_files() -> int:
                 continue
             try:
                 if path.stat().st_size == 0:
-                    path.unlink()
-                    count += 1
+                    def remove_empty(path: Path = path) -> bool:
+                        if managed_directory(path) is None or file_usage(path.name) > 0:
+                            return False
+                        path.unlink()
+                        return True
+
+                    leased, deleted = run_if_upload_unleased(path, remove_empty)
+                    if leased and deleted:
+                        count += 1
             except OSError:
                 pass
     if count:

@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>视频检测 - 水下海洋生物目标检测与分析系统</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/detection.css">
+    <link rel="stylesheet" href="css/visuals.css">
 </head>
 <body>
 <header class="navbar">
@@ -14,7 +16,9 @@
             <a href="index.html">首页</a>
             <a href="detect_image.html">图片检测</a>
             <a href="detect_video.html">视频检测</a>
+            <a href="survey_map.html">养殖地形图</a>
             <a href="records.html">检测记录</a>
+            <a href="gallery.html">目标图库</a>
             <a href="stats.html">数据统计</a>
             <a href="system.html">系统状态</a>
             <a href="api_docs.html">接口文档</a>
@@ -23,24 +27,58 @@
     </div>
 </header>
 
-<div class="container">
+<div class="container detection-workspace">
     <h1 class="page-title">视频检测</h1>
     <p class="page-desc">
-        上传视频后逐帧检测, 采用目标跟踪跨帧去重, 统计真实目标数量(而非逐帧重复累加)
+        上传视频后进行离线分析。计数按三档口径依次取用：跨帧轨迹数 → 单帧峰值 MaxN → 累计检出框，界面会标明本次采用的口径。
     </p>
 
     <div id="alert-box"></div>
 
-    <div class="card">
-        <h2 class="card-title">上传视频</h2>
+    <div class="card detection-setup">
+        <div class="detection-setup-heading"><div><span class="detection-kicker">DETECTION WORKSPACE</span><h2>新建视频检测</h2><p>按顺序选择站点、素材与检测参数</p></div><span class="detection-status">本地模型分析</span></div>
+        <section class="detection-step" aria-labelledby="station-step-title">
+            <h3 id="station-step-title"><span>01</span> 选择调查站点</h3>
+        <div class="row" style="margin-top:16px; align-items:flex-end;">
+            <div class="field survey-field">
+                <label for="survey-map">养殖所</label>
+                <select id="survey-map" aria-label="选择养殖所"><option value="1">正在读取养殖所…</option></select>
+            </div>
+            <div class="field survey-field">
+                <label for="survey-site">调查站点</label>
+                <select id="survey-site" required aria-describedby="station-picker-status"><option value="">正在加载地图站点…</option></select>
+            </div>
+            <div class="field survey-field">
+                <label>样方 / 断面</label>
+                <input type="text" id="survey-transect" maxlength="64" placeholder="如 T1">
+            </div>
+            <div class="field survey-field" style="max-width:110px;">
+                <label>水深 (m)</label>
+                <input type="number" id="survey-depth" min="0" step="0.1" placeholder="可选">
+            </div>
+            <div class="field survey-field">
+                <label>调查轮次</label>
+                <input type="text" id="survey-round" maxlength="32" placeholder="如 2026春">
+            </div>
+        </div>
+        <p class="small muted" style="margin:6px 0 0;">
+            <span id="station-picker-status" role="status">调查站点必选；样方、水深与轮次可选。</span> <a id="station-map-link" href="survey_map.html">前往养殖地形图建立站点</a> · <button type="button" class="station-refresh-link" id="station-picker-refresh">刷新站点</button>
+        </p>
+        </section>
+        <section class="detection-step" aria-labelledby="upload-step-title">
+            <h3 id="upload-step-title"><span>02</span> 上传视频</h3>
         <div class="upload-area" id="upload-area">
-            <div class="icon">🎬</div>
+            <div class="icon" aria-hidden="true">▶</div>
             <div>点击选择视频, 或将视频拖拽到此处</div>
-            <div class="hint">建议使用 MP4 (H.264) 编码, 短片段可获得更好实时性</div>
+            <div class="hint">建议使用 MP4 (H.264) 编码；单文件不超过 <span id="max-video-size">300</span> MB。处理速度取决于设备和视频尺寸，不保证实时完成</div>
             <input type="file" id="file-input" accept="video/*" hidden>
         </div>
         <div class="file-name hidden" id="file-name"></div>
 
+        </section>
+
+        <section class="detection-step detection-actions" aria-labelledby="params-step-title">
+            <h3 id="params-step-title"><span>03</span> 检测参数与操作</h3>
         <div class="row" style="margin-top:16px; align-items:flex-end;">
             <div class="field slider-field">
                 <label>置信度阈值 <b id="conf-value">0.25</b></label>
@@ -55,12 +93,20 @@
         <div class="small muted" id="video-meta" style="margin-top:10px;"></div>
         <div class="progress" style="margin-top:10px;"><div id="progress-bar"></div></div>
         <div class="small muted" style="margin-top:6px;" id="progress-text"></div>
+        </section>
     </div>
 
     <div class="card">
-        <h2 class="card-title">实时检测画面</h2>
+        <h2 class="card-title">后台视频任务<button class="btn btn-sm btn-secondary" id="btn-refresh-jobs">刷新任务</button></h2>
+        <p class="small muted">上传完成后可切换或刷新页面，检测会在后台继续。返回此页可恢复查看和控制；程序关闭后未完成任务需重新上传。最多保留最近 20 个结果的查看入口，最长一小时；完整结果保存在检测记录中。</p>
+        <p class="small muted" id="video-jobs-error" role="status"></p>
+        <div id="video-jobs-list"><p class="small muted">正在加载任务...</p></div>
+    </div>
+
+    <div class="card detection-preview">
+        <h2 class="card-title">视频分析画面</h2>
         <div class="video-stage">
-            <div class="placeholder" id="stage-placeholder">上传视频并开始检测后, 此处实时显示带检测框的画面</div>
+            <div class="placeholder" id="stage-placeholder">上传并开始分析后，此处按处理进度更新检测画面</div>
             <canvas id="video-canvas" class="hidden"></canvas>
             <div class="paused-mask hidden" id="paused-mask">已暂停检测</div>
         </div>
@@ -75,15 +121,15 @@
                 <div class="v" id="live-total">0</div>
             </div>
             <div class="live-stat">
-                <div class="k">累计唯一目标</div>
-                <div class="v" id="live-unique">0</div>
+                <div class="k">累计跟踪轨迹</div>
+                <div class="v" id="live-unique">—</div>
             </div>
             <div class="live-stat">
                 <div class="k">处理速度 (FPS)</div>
                 <div class="v" id="live-fps">0.0</div>
             </div>
             <div class="live-stat">
-                <div class="k">播放时间</div>
+                <div class="k">视频位置</div>
                 <div class="v" id="live-time" style="font-size:18px;">0.0 s</div>
             </div>
             <div class="live-stat">
@@ -91,6 +137,7 @@
                 <div class="v" id="live-peak">0</div>
             </div>
         </div>
+        <p class="small muted hidden" id="count-warning" role="status"></p>
 
         <h3 style="font-size:14px;margin:14px 0 8px;">当前帧各类别数量</h3>
         <div class="tag-list" id="live-tags">
@@ -108,9 +155,9 @@
         </h2>
         <div class="grid-3">
             <div class="stat-card">
-                <div class="label">唯一目标数(跟踪去重)</div>
+                <div class="label">跟踪轨迹数</div>
                 <div class="value" id="sum-unique">0</div>
-                <div class="extra">跨帧认定为同一目标只计一次</div>
+                <div class="extra" id="sum-count-note">按跟踪轨迹去重，不等于经确认的独立生物个体数</div>
             </div>
             <div class="stat-card">
                 <div class="label">累计检测框数</div>
@@ -125,12 +172,15 @@
             <div class="stat-card"><div class="label">单帧峰值</div><div class="value" id="sum-peak">0</div></div>
             <div class="stat-card"><div class="label">平均每帧目标</div><div class="value" id="sum-avg">0</div></div>
         </div>
-        <h3 style="font-size:14px;margin:18px 0 8px;">全程各类别唯一目标数</h3>
+        <h3 style="font-size:14px;margin:18px 0 8px;" id="sum-tags-title">各类别跟踪轨迹数</h3>
         <div class="tag-list" id="sum-tags"></div>
     </div>
 </div>
 
 <script src="js/common.js"></script>
+<script src="js/station_picker.js"></script>
 <script src="js/video.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/visuals.js"></script>
 </body>
 </html>

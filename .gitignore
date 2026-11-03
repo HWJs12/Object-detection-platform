@@ -1,4 +1,5 @@
 .venv/
+.python/
 venv/
 __pycache__/
 *.pyc
@@ -11,10 +12,24 @@ data/
 # 模型权重不入库
 models/*.pt
 
+# 本地实际配置(可能含 API Key), 不入库; 模板 config.example.yaml 保留
+config.yaml
+
+# 密钥文件
+.env
+.env.*
+*.key
+secrets.yaml
+
 # 测评与临时产物
+tmp/
+tools/_qa_*.cjs
 tools/_qa_*.py
+tools/_llm_*.py
 docs/_pid_check.txt
 docs/architecture-quality.md
 docs/quality-assessment.md
 docs/screenshots/
+docs/knowledge-map.html
+docs/modules-and-prerequisites.md
 *.bak.html

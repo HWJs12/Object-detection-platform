@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一号海洋养殖地形图 - 水下海洋生物检测系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/survey_map.css">
+    <link rel="stylesheet" href="css/visuals.css">
+</head>
+<body>
+<header class="navbar"><div class="nav-inner">
+    <div class="brand">水下海洋生物检测系统<small>基于GSCNet的海洋检测平台</small></div>
+    <nav>
+        <a href="index.html">首页</a><a href="detect_image.html">图片检测</a>
+        <a href="detect_video.html">视频检测</a><a href="survey_map.html">养殖地形图</a>
+        <a href="records.html">检测记录</a><a href="gallery.html">目标图库</a>
+        <a href="stats.html">数据统计</a><a href="system.html">系统状态</a><a href="api_docs.html">接口文档</a>
+    </nav><span class="nav-status" id="nav-status">加载中...</span>
+</div></header>
+<main class="container survey-map-page">
+    <div class="survey-heading"><div><div class="survey-kicker">海洋养殖 · 站点布设</div>
+        <h1 class="page-title" id="map-title">一号海洋养殖地形图</h1>
+        <p class="page-desc" id="map-description">近岸海湾 · 沙滩、浅海礁石与深海坡地</p></div>
+        <span class="survey-fiction">虚拟示意地图 · 非真实地理位置</span>
+    </div>
+    <div class="farm-switcher" id="farm-switcher" role="group" aria-label="选择养殖所"><p class="small muted">正在读取养殖所…</p></div>
+    <div class="survey-layout">
+        <section class="map-panel" aria-label="虚拟海域地图">
+            <div class="map-toolbar"><span id="map-instruction" role="status">拖入调查站建筑，或点击“添加站点”后选择位置</span>
+                <button type="button" class="btn btn-sm btn-secondary" id="map-cancel" hidden>取消放置</button>
+            </div>
+            <p class="map-mobile-hint">地图可左右滑动查看完整区域</p>
+            <div class="map-viewport"><div class="map-stage" id="map-stage" tabindex="0" aria-label="虚拟海域。可点击放置站点，也可在表单中设置位置。">
+                <img id="map-terrain" src="assets/survey-coast-map.png" class="map-terrain" alt="蓝色俯视海岛地图，左侧为岛屿沙滩，中部为浅海礁石，右侧为深海" draggable="false">
+                <canvas id="ocean-water" class="ocean-water" aria-hidden="true"></canvas>
+                <div id="station-layer"></div>
+                <div class="map-empty" id="map-empty">这里还没有调查站<small>从右侧拖入一座建筑，开始布设</small></div>
+                <div class="map-credit">虚拟养殖地形 · 非真实地理位置</div>
+            </div></div>
+            <div class="map-legend"><span><i></i>启用站点</span><span><i class="legend-inactive"></i>停用站点</span><span>拖动已有建筑可调整位置</span></div>
+        </section>
+        <aside class="survey-sidebar">
+            <section class="card station-tool-card"><h2 class="card-title">布设调查站</h2>
+                <button type="button" id="station-tool" class="station-tool" draggable="true" aria-label="添加站点：可拖到地图，或点击后选择位置">
+                    <img src="assets/survey-station.svg" alt="" draggable="false"><span>添加站点<small>拖入地图 / 点击放置</small></span><b aria-hidden="true">＋</b>
+                </button>
+                <div class="station-list-heading"><span id="station-total">站点列表</span><button class="text-button" id="map-refresh" type="button">刷新</button></div>
+                <p class="small muted" id="station-load-state" role="status">正在读取站点…</p><div id="station-list" class="station-list"></div>
+            </section>
+            <section class="card station-detail-card" id="station-detail"><h2 class="card-title">站点档案</h2><p class="muted">选择一座调查站，查看记录与统计。</p></section>
+        </aside>
+    </div>
+</main>
+<dialog class="station-dialog" id="station-dialog" aria-labelledby="station-dialog-title">
+    <form id="station-form"><h2 id="station-dialog-title">建立调查站</h2>
+        <p class="small muted"><span id="station-map-context">一号养殖所</span> · 位置为地图中的相对位置，可随时调整。</p>
+        <div class="field"><label for="station-name">站点名称 *</label><input id="station-name" required maxlength="64" placeholder="如 一号养殖所东侧站" autocomplete="off"></div>
+        <div class="row"><div class="field"><label for="station-x">横向位置 (%)</label><input id="station-x" type="number" required min="0" max="100" step="0.01"></div>
+        <div class="field"><label for="station-y">纵向位置 (%)</label><input id="station-y" type="number" required min="0" max="100" step="0.01"></div></div>
+        <div class="field"><label for="station-depth">参考水深 (m，可选)</label><input id="station-depth" type="number" min="0.01" max="12000" step="0.01" placeholder="仅作为检测时的填写参考"></div>
+        <div class="field"><label for="station-note">站点备注</label><textarea id="station-note" maxlength="300" rows="3" placeholder="如 礁石区、近岸样带"></textarea></div>
+        <p class="form-error" id="station-form-error" role="alert"></p>
+        <div class="station-dialog-actions"><button class="btn btn-secondary" id="station-dialog-cancel" type="button">取消</button><button class="btn" id="station-save" type="submit">保存站点</button></div>
+    </form>
+</dialog>
+<dialog class="station-dialog" id="station-delete-dialog" role="alertdialog" aria-labelledby="station-delete-title" aria-describedby="station-delete-description station-delete-warning">
+    <form id="station-delete-form">
+        <h2 id="station-delete-title">确认删除站点？</h2>
+        <p id="station-delete-description" class="station-delete-description"></p>
+        <p id="station-delete-warning" class="small muted">删除后，站点将从地图和检测选项中移除。已有图片、视频及检测记录会保留，记录中的原站点名称仍可查看。</p>
+        <p class="form-error" id="station-delete-error" role="alert"></p>
+        <div class="station-dialog-actions"><button class="btn btn-secondary" id="station-delete-cancel" type="button">取消</button><button class="btn btn-danger" id="station-delete-confirm" type="submit">确认删除</button></div>
+    </form>
+</dialog>
+<script src="js/common.js"></script><script src="js/survey_map.js"></script><script src="js/ocean_surf.js?v=20261103b"></script><script src="js/chat.js"></script>
+<script src="js/visuals.js"></script>
+</body></html>

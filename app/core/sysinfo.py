@@ -16,7 +16,7 @@ import datetime as dt
 import os
 import shutil
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from config import BASE_DIR, settings
 
@@ -143,8 +143,10 @@ def _video_tasks() -> Dict[str, Any]:
                 "task_id": task.task_id,
                 "source_name": getattr(task, "source_name", None),
                 "running": bool(getattr(task, "running", False)),
+                "paused": bool(getattr(task, "paused", False)),
                 "processed": int(getattr(task, "processed", 0) or 0),
-                "total_frames": int(getattr(task, "total_frames", 0) or 0),
+                "frame_index": int(getattr(task, "frame_index", 0) or 0),
+                "total_frames": int(getattr(getattr(task, "meta", None), "total_frames", 0) or 0),
                 "idle_sec": round(time.time() - float(getattr(task, "created_at", time.time())), 1),
             })
     except Exception:

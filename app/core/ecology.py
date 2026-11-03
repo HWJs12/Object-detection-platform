@@ -2,12 +2,12 @@
 
 职责边界
 --------
-输入是"各物种的个体数"(即已有的 `detection_class_stats` 类别计数), 输出是生态学
-通用多样性指数。**不参与检测、不修改推理, 只对检测结果做二次统计。**
+输入是检测框的类别计数，输出是类别分布指数。模型类别不等于实际物种，
+检测框也不等于经调查确认的独立生物个体。不能据此评价生态质量。
 
 指标与公式
 ----------
-记 S = 类别数(丰富度), N = 个体总数, p_i = n_i / N 为第 i 类占比。
+记 S = 检出类别数, N = 检出框总数, p_i = n_i / N 为第 i 类占比。
 
 1. **Shannon-Wiener 多样性指数**  H' = -Σ p_i · ln(p_i)
    综合"种类多少"与"分布是否均匀", 生态学最常用的多样性度量。H' 越大越多样。
@@ -46,7 +46,7 @@ def compute_indicators(counts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
     Returns:
         {
-          "total": 个体总数, "richness": 类别数,
+          "total": 检出框总数, "richness": 检出类别数,
           "shannon": H', "simpson": D, "pielou": J', "margalef": d,
           "evenness_note": 均匀度说明(S=1 时为无定义提示),
           "dominant": {"class_name", "count", "ratio"} | None,
@@ -54,15 +54,18 @@ def compute_indicators(counts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         }
     """
     # 过滤非法计数: count <= 0 的类别不参与(它们不是"检出到的物种")
-    cleaned: List[Dict[str, Any]] = []
+    by_name: Dict[str, int] = {}
     for item in counts or []:
         try:
             n = int(item.get("count") or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if n <= 0:
             continue
-        cleaned.append({"class_name": str(item.get("class_name") or "未知"), "count": n})
+        name = str(item.get("class_name") or "未知")
+        by_name[name] = by_name.get(name, 0) + n
+
+    cleaned = [{"class_name": name, "count": n} for name, n in by_name.items()]
 
     cleaned.sort(key=lambda x: x["count"], reverse=True)
     total = sum(c["count"] for c in cleaned)
@@ -72,7 +75,7 @@ def compute_indicators(counts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "total": 0, "richness": 0,
         "shannon": None, "simpson": None, "pielou": None, "margalef": None,
         "evenness_note": "暂无检出数据",
-        "dominant": None, "abundance": [],
+        "dominant": None, "abundance": [], "shannon_max": None,
     }
     if total <= 0 or richness == 0:
         return empty
@@ -91,7 +94,7 @@ def compute_indicators(counts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     if richness > 1:
         max_shannon = math.log(richness)
         pielou: Optional[float] = shannon / max_shannon if max_shannon > 0 else None
-        evenness_note = "取值 0~1, 越接近 1 表示各类别个体分布越均匀"
+        evenness_note = "取值 0~1，越接近 1 表示已检出类别的框数分布越均匀"
     else:
         pielou = None
         evenness_note = "仅检出 1 个类别, 均匀度无定义(需 ≥2 个类别)"
@@ -123,6 +126,7 @@ def compute_indicators(counts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "simpson": round(simpson, 4),
         "pielou": round(pielou, 4) if pielou is not None else None,
         "margalef": round(margalef, 4) if margalef is not None else None,
+        "shannon_max": round(math.log(richness), 4) if richness > 1 else 0.0,
         "evenness_note": evenness_note,
         "dominant": dominant,
         "abundance": abundance,
@@ -130,10 +134,7 @@ def compute_indicators(counts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def interpret(result: Dict[str, Any]) -> Dict[str, Any]:
-    """把指数数值翻译成中文定性判断(供前端直接展示, 不做无依据的夸大)。
-
-    分档依据来自生态学文献中常用的经验区间, 只用于**辅助阅读**, 不替代专业判读。
-    """
+    """描述检出类别分布，不把模型类别或固定阈值当作生态评价依据。"""
     h = result.get("shannon")
     j = result.get("pielou")
     d = result.get("dominant")
@@ -144,46 +145,22 @@ def interpret(result: Dict[str, Any]) -> Dict[str, Any]:
         return {"level": "none", "shannon_text": "暂无数据", "evenness_text": "暂无数据",
                 "dominant_text": "暂无数据"}
 
-    # Shannon 分档(H' 的经验区间)
     if h is None:
         shannon_text = "不可用"
-    elif h < 1.0:
-        shannon_text = "多样性偏低, 群落由少数类别主导"
-    elif h < 2.0:
-        shannon_text = "多样性中等"
-    elif h < 3.0:
-        shannon_text = "多样性较高, 类别分布相对均衡"
+    elif richness < 2:
+        shannon_text = "仅检出一个类别，不评价实际物种多样性"
     else:
-        shannon_text = "多样性高, 群落结构复杂"
+        shannon_text = f"当前 {richness} 个检出类别的理论上限为 ln({richness}) = {math.log(richness):.4f}"
 
-    # Pielou 分档
-    if j is None:
-        evenness_text = "类别数不足, 无法评估均匀度"
-    elif j < 0.3:
-        evenness_text = "分布很不均匀, 存在明显优势种"
-    elif j < 0.6:
-        evenness_text = "分布较不均匀"
-    elif j < 0.8:
-        evenness_text = "分布较为均匀"
-    else:
-        evenness_text = "分布均匀, 无明显优势种"
+    evenness_text = ("仅一个检出类别，均匀度无定义" if j is None else
+                     f"达到当前类别数下最大 Shannon 值的 {j * 100:.1f}%；仅反映检出框分布")
 
     dominant_text = "暂无数据"
     if d:
-        dominant_text = f"优势种为「{d['class_name']}」, 占 {d['ratio']}%"
-
-    # 综合等级: 以 H' 为主, 类别数过少时降级
-    if h is None or richness < 2:
-        level = "low" if total else "none"
-    elif h >= 2.5:
-        level = "high"
-    elif h >= 1.5:
-        level = "mid"
-    else:
-        level = "low"
+        dominant_text = f"检出最多的类别为「{d['class_name']}」，占 {d['ratio']}%"
 
     return {
-        "level": level,
+        "level": "descriptive",
         "shannon_text": shannon_text,
         "evenness_text": evenness_text,
         "dominant_text": dominant_text,

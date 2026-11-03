@@ -3,6 +3,21 @@
 
 PRAGMA foreign_keys = ON;
 
+-- 地图位置采用 0–1 相对坐标，非真实经纬度；不预置任何站点。
+CREATE TABLE IF NOT EXISTS survey_stations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    map_id INTEGER NOT NULL DEFAULT 1 CHECK(map_id BETWEEN 1 AND 3),
+    x REAL NOT NULL CHECK(x BETWEEN 0 AND 1),
+    y REAL NOT NULL CHECK(y BETWEEN 0 AND 1),
+    depth_m REAL CHECK(depth_m > 0 AND depth_m <= 12000),
+    note TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- 检测主表: 一次图片或视频检测对应一条
 CREATE TABLE IF NOT EXISTS detections (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,12 +37,31 @@ CREATE TABLE IF NOT EXISTS detections (
     conf_threshold    REAL,                              -- 本次使用的置信度阈值
     unique_objects    INTEGER NOT NULL DEFAULT 0,        -- 唯一目标数(目标跟踪跨帧去重)
     total_detections  INTEGER NOT NULL DEFAULT 0,        -- 检测框累计数(所有帧求和)
+    tracked_objects   INTEGER NOT NULL DEFAULT 0,        -- 已建立的跟踪轨迹数(不要求去重成立)
+    counting_mode     TEXT NOT NULL DEFAULT 'legacy_unknown', -- 明确计数口径
+    unique_count_valid INTEGER NOT NULL DEFAULT 0,       -- 是否具有可用轨迹计数
+    source_hash       TEXT NOT NULL DEFAULT '',          -- 原始素材内容哈希
+    inference_snapshot TEXT NOT NULL DEFAULT '{}',       -- 检测时的模型与参数快照
+    -- 调查维度(站点 / 样方 / 水深 / 调查轮次): 记录级元数据, 不进入类别表,
+    -- 也不参与 YOLO 类别编号映射。留空表示未标注, 统计时归入"未标注站点"。
+    site_id           INTEGER REFERENCES survey_stations(id), -- 地图站点固定编号；旧无站点记录为 NULL
+    site              TEXT    NOT NULL DEFAULT '',       -- 站点 / 站位名称
+    transect          TEXT    NOT NULL DEFAULT '',       -- 样方 / 样带编号
+    depth_m           REAL,                              -- 水深(米), 可空
+    survey_round      TEXT    NOT NULL DEFAULT '',       -- 调查轮次(如 2026 春)
+    -- 相对丰度(MaxN): 单帧内某类别同时出现的最大个体数, 见 4.4.2。
+    -- 该指标不依赖跨帧个体识别, 因此跟踪不完整时依然成立。
+    maxn_per_class    TEXT    NOT NULL DEFAULT '{}',     -- JSON: {"海胆": 12, ...}
+    maxn_total        INTEGER NOT NULL DEFAULT 0,        -- 单帧目标总数峰值
+    cpunx             REAL,                              -- MaxN / 调查时长(小时), 即 CPUE 思路
     status            TEXT    NOT NULL DEFAULT 'success',-- success | failed
     message           TEXT                               -- 备注 / 错误信息
 );
 
 CREATE INDEX IF NOT EXISTS idx_detections_created_at ON detections(created_at);
 CREATE INDEX IF NOT EXISTS idx_detections_type       ON detections(task_type);
+-- 注意: idx_detections_site 不在此处创建。旧库在 executescript 阶段还没有 site 列,
+-- 在这里建索引会让整个脚本中止, 导致服务启动失败; 该索引统一由 database._migrate 补建。
 
 -- 检测明细表: 图片检测每个目标一条; 视频检测保存采样帧的目标
 CREATE TABLE IF NOT EXISTS detection_items (
@@ -58,13 +92,16 @@ CREATE TABLE IF NOT EXISTS detection_class_stats (
 
 CREATE INDEX IF NOT EXISTS idx_class_stats_detection ON detection_class_stats(detection_id);
 
--- 视频逐帧统计表: 帧号 / 时间戳 / 当前帧目标数
+-- 视频逐帧统计表: 帧号 / 时间戳 / 当前帧目标数 / 当帧各类别计数
 CREATE TABLE IF NOT EXISTS video_frame_stats (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     detection_id  INTEGER NOT NULL,
     frame_index   INTEGER NOT NULL,
     timestamp_sec REAL    NOT NULL DEFAULT 0,
     total_objects INTEGER NOT NULL DEFAULT 0,
+    -- 当帧各类别计数 JSON: {"海胆": 3, "海星": 1}
+    -- MaxN 需要对每个类别单独取全片峰值, 仅有 total 无法还原按类别的峰值。
+    class_counts  TEXT    NOT NULL DEFAULT '{}',
     FOREIGN KEY (detection_id) REFERENCES detections(id) ON DELETE CASCADE
 );
 

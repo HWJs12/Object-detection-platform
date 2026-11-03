@@ -6,6 +6,7 @@ import atexit
 import logging
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -43,14 +44,27 @@ def get_connection() -> sqlite3.Connection:
 
 @contextmanager
 def transaction() -> Iterator[sqlite3.Cursor]:
-    """事务上下文: 成功自动提交, 异常自动回滚。"""
+    """业务事务支持嵌套: 内层只释放保存点, 不提前提交外层业务。"""
     conn = get_connection()
+    nested = conn.in_transaction
+    savepoint = "sp_" + uuid.uuid4().hex
     cur = conn.cursor()
     try:
+        if nested:
+            cur.execute(f"SAVEPOINT {savepoint}")
+        else:
+            cur.execute("BEGIN IMMEDIATE")
         yield cur
-        conn.commit()
+        if nested:
+            cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+        else:
+            conn.commit()
     except Exception:
-        conn.rollback()
+        if nested:
+            cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+        else:
+            conn.rollback()
         raise
     finally:
         cur.close()
@@ -58,10 +72,33 @@ def transaction() -> Iterator[sqlite3.Cursor]:
 
 # 旧库升级: 表结构新增列 (列名 -> 列定义)
 _MIGRATIONS: dict[str, dict[str, str]] = {
+    "survey_stations": {
+        "map_id": "INTEGER NOT NULL DEFAULT 1 CHECK(map_id BETWEEN 1 AND 3)",
+    },
     "detections": {
         "unique_objects": "INTEGER NOT NULL DEFAULT 0",
         "total_detections": "INTEGER NOT NULL DEFAULT 0",
+        # 已建立的跟踪轨迹数: 与 unique_objects 的区别在于不要求跨帧去重成立,
+        # 用于向用户解释"本次提供了什么粒度的追踪", 旧记录默认 0。
+        "tracked_objects": "INTEGER NOT NULL DEFAULT 0",
         "result_video": "TEXT",
+        "counting_mode": "TEXT NOT NULL DEFAULT 'legacy_unknown'",
+        "unique_count_valid": "INTEGER NOT NULL DEFAULT 0",
+        "source_hash": "TEXT NOT NULL DEFAULT ''",
+        "inference_snapshot": "TEXT NOT NULL DEFAULT '{}'",
+        # 调查维度: 全部可空/空串, 旧记录天然属于"未标注站点"
+        "site_id": "INTEGER REFERENCES survey_stations(id)",
+        "site": "TEXT NOT NULL DEFAULT ''",
+        "transect": "TEXT NOT NULL DEFAULT ''",
+        "depth_m": "REAL",
+        "survey_round": "TEXT NOT NULL DEFAULT ''",
+        # 相对丰度: 旧记录无法回溯逐帧类别计数, 默认 0 / 空, 由读层据此标注"未记录"
+        "maxn_per_class": "TEXT NOT NULL DEFAULT '{}'",
+        "maxn_total": "INTEGER NOT NULL DEFAULT 0",
+        "cpunx": "REAL",
+    },
+    "video_frame_stats": {
+        "class_counts": "TEXT NOT NULL DEFAULT '{}'",
     },
 }
 
@@ -78,6 +115,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
         for col, ddl in columns.items():
             if col not in current:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+    # 图片中的框数有确定口径; 旧视频的跟踪状态无法追溯, 不伪造有效轨迹数。
+    conn.execute(
+        "UPDATE detections SET counting_mode='image_objects', unique_count_valid=1, "
+        "unique_objects=total_objects, total_detections=total_objects "
+        "WHERE task_type='image' AND counting_mode='legacy_unknown'"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_source_hash ON detections(source_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_site ON detections(site)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_detections_site_id ON detections(site_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_stations_map_active ON survey_stations(map_id,active)")
 
 
 def init_db() -> None:

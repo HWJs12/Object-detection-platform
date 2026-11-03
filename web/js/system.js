@@ -150,20 +150,23 @@ function renderTasks(d) {
     const body = $('#task-body');
     const tasks = (d.video_tasks && d.video_tasks.tasks) || [];
     if (!tasks.length) {
-        body.innerHTML = '<tr><td colspan="5" class="empty">当前没有驻留任务</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="empty">当前没有驻留任务</td></tr>';
         return;
     }
     body.innerHTML = tasks.map((t) => {
         const progress = t.total_frames
-            ? Math.round((t.processed / t.total_frames) * 100) + '%' : '-';
+            ? Math.round(((t.frame_index ?? t.processed) / t.total_frames) * 100) + '%' : '-';
         return `<tr>
             <td class="mono small">${escapeHtml(t.task_id)}</td>
             <td>${escapeHtml(t.source_name || '-')}</td>
-            <td>${t.running
-                ? '<span class="status-pill ok"><i></i>检测中</span>'
+            <td>${t.paused
+                ? '<span class="status-pill warn"><i></i>已暂停</span>'
+                : t.running
+                    ? '<span class="status-pill ok"><i></i>检测中</span>'
                 : '<span class="status-pill warn"><i></i>等待中</span>'}</td>
             <td>${progress}</td>
             <td>${duration(t.idle_sec)}</td>
+            <td><button class="btn btn-sm btn-danger" data-stop-task="${escapeHtml(t.task_id)}">停止</button></td>
         </tr>`;
     }).join('');
 }
@@ -178,7 +181,7 @@ async function renderTrash() {
         return;
     }
     $('#trash-summary').textContent =
-        `${data.files} 个文件 · ${bytes(data.bytes)} · 最久滞留 ${data.oldest_days} 天`;
+        `${data.files} 个文件 · ${bytes(data.bytes)} · 最久滞留 ${data.oldest_days == null ? '未知' : data.oldest_days + ' 天'}`;
 
     const body = $('#trash-body');
     const files = data.files_detail || [];
@@ -191,7 +194,7 @@ async function renderTrash() {
             <td class="small">${escapeHtml(f.original_name)}</td>
             <td>${bytes(f.bytes)}</td>
             <td class="small muted">${escapeHtml(f.deleted_at)}</td>
-            <td>${f.age_days} 天</td>
+            <td>${f.age_days == null ? '未知' : escapeHtml(f.age_days) + ' 天'}</td>
             <td><button class="btn btn-sm btn-secondary" data-restore="${escapeHtml(f.trash_name)}">恢复</button></td>
         </tr>
     `).join('');
@@ -391,6 +394,21 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             toast('回收失败: ' + err.message, 'error');
         } finally {
+            btn.disabled = false;
+        }
+    });
+
+    $('#task-body').addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-stop-task]');
+        if (!btn) return;
+        const taskId = btn.dataset.stopTask;
+        btn.disabled = true;
+        try {
+            await API.postJSON(`/api/detect/video/${encodeURIComponent(taskId)}/control`, { action: 'stop' });
+            toast('已发送停止指令，正在释放任务资源', 'success');
+            window.setTimeout(refresh, 500);
+        } catch (err) {
+            toast('停止失败: ' + err.message, 'error');
             btn.disabled = false;
         }
     });
