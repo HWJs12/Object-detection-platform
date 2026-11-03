@@ -12,13 +12,15 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 权重文件 | `models/best.pt`（Gscnet，5 类：`hd` / `hx` / `hs` / `sb` / `other`） |
+| 权重文件 | **仓库不包含模型权重**；首次运行前请上传自己的 `.pt` 到 `models/`，或在 `config.yaml` 中填写相对路径 |
 | 训练配置 | `models/data.yaml`（原始训练配置，仅供查阅，程序运行不依赖它） |
 | 示例素材 | `samples/` 中可选的图片与抽帧样例；个人屏幕录制、检测上传文件和运行结果不会随代码提交 |
 | 一键启动 | 双击 `start.bat` |
 | 数据库 | 调查站点与检测记录保存在 SQLite；新检测必须选择地图中启用的站点 |
 
-**实测结果（CPU 推理，非估算）**
+**本机实测参考（CPU 推理）**
+
+> 以下数据由开发者在本机使用自己的模型权重测得，仅供性能参考。GitHub 仓库不包含该权重；请上传自己的 `.pt` 文件后再运行检测。
 
 | 场景 | 实测值 |
 | --- | --- |
@@ -49,14 +51,11 @@
 ### 1. 创建并激活虚拟环境
 
 ```bat
-cd D:\graduatework\underwater-detection
 python -m venv .venv
 .venv\Scripts\activate
 ```
 
-> 本机已在新目录恢复 `.python/`（Python 主程序）和 `.venv/`（项目依赖），可直接双击 `start.bat`。
-> 请保留这两个目录。再次移动项目时，代码、模型、数据和编辑器配置会按新目录定位；
-> 若虚拟环境无法启动，需要在新位置重建 `.venv`。系统 PATH 中的 Python 3.7 无法运行本项目。
+> 启动脚本会从项目目录定位代码与资源。克隆仓库后请按本节创建虚拟环境并安装依赖；移动项目后，若虚拟环境无法启动，请在项目根目录重新创建 `.venv`。
 
 ### 2. 安装 PyTorch（CPU 版，无 NVIDIA 显卡时必须用这个源，否则会装 2GB+ 的 CUDA 包）
 
@@ -75,8 +74,7 @@ pip install -r requirements.txt
 
 ### 4. 放入模型权重
 
-把训练好的 `.pt` 文件复制到 `models/` 目录，例如 `models/best.pt`。
-程序会自动扫描该目录（详见 `models/README.md`）。
+本仓库不附带任何 `.pt` 权重文件。首次使用前，请将自己训练的权重上传到项目根目录下的 `models/`，例如 `models/best.pt`。程序默认扫描 `models/` 并选择找到的第一个 `.pt` 文件；也可在项目根目录的 `config.yaml` 中将 `model_path` 设为相对于项目根目录的路径。具体步骤见 [`models/README.md`](models/README.md)。
 
 ---
 
@@ -89,7 +87,6 @@ pip install -r requirements.txt
 ### 方式二：命令行
 
 ```bat
-cd D:\graduatework\underwater-detection
 
 :: 本机已配置好的虚拟环境（推荐，依赖已装齐）
 .venv\Scripts\python.exe run.py
@@ -629,14 +626,14 @@ H'=0.4293 / D=0.2604 / J'=0.6194 / Margalef=0.3899）。
 
 ## 开发检查
 
-在项目根目录、已安装项目依赖的环境中运行：
+在克隆后的项目根目录、已安装项目依赖的环境中运行：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
 node tests\frontend_contracts.cjs
 ```
 
-如果 Node.js 未包含在项目虚拟环境中，可用系统 Node.js 执行第二条命令。浏览器交互检查需要启动本地服务并使用 Playwright 与 Edge/Chrome。测试会使用临时目录或测试数据库；运行完整测试前请确认 `config.yaml` 指向测试数据位置，避免连接实际数据库。
+前端合同检查需另行安装 Node.js。浏览器交互检查需要启动本地服务并使用 Playwright 与 Edge/Chrome。测试会使用临时目录或测试数据库；运行完整测试前请确认 `config.yaml` 指向测试数据位置，避免连接实际数据库。
 
 ## GitHub 提交范围
 
