@@ -181,6 +181,10 @@ _SYSTEM_HEAD = """你是「基于 GSCNet 的水下海洋生物检测平台」的
 - 分页参数：page（从 1 开始）、page_size
 - 本页提供 Swagger UI 与 ReDoc 两种交互式调试入口
 
+## 常用操作
+- 批量图片检测：先在「养殖地形图」添加并启用调查站点，再在「图片检测」选择该站点，多选或拖入图片，点击「开始检测」。页面会按队列逐张处理，一次最多 {max_batch_images} 张。
+- 批量图片检测接口：`POST /api/detect/images`，以 `multipart/form-data` 多次传入同名 `files` 字段，并提交启用站点的 `site_id`。
+
 ## 接口清单（共 {count} 个。请严格据此回答，不要编造不存在的接口或参数）
 {catalog}
 
@@ -197,6 +201,7 @@ def build_system_prompt() -> str:
     _ensure_catalog()
     return (
         _SYSTEM_HEAD.replace("{count}", str(_catalog_count))
+        .replace("{max_batch_images}", str(settings.max_batch_images))
         .replace("{catalog}", _catalog_text or "")
     )
 
@@ -241,19 +246,16 @@ def _extract_delta(data: str) -> str:
     return content if isinstance(content, str) else ""
 
 
-async def _read_error(resp: httpx.Response) -> str:
-    try:
-        return (await resp.aread()).decode("utf-8", "replace")
-    except Exception:
-        return ""
-
-
 def _friendly_http_error(status: int) -> str:
     """把上游状态码翻译成用户能看懂的提示。"""
     if status == 401:
-        return "助手密钥无效或已过期，请检查配置。"
+        return "助手鉴权失败（HTTP 401），请确认密钥与服务地址属于同一提供方。"
     if status == 402:
         return "助手账户余额不足，请先充值。"
+    if status == 403:
+        return "助手密钥没有调用权限，请检查服务账户或模型权限。"
+    if status == 404:
+        return "助手接口或模型不存在，请检查服务地址及模型标识。"
     if status == 429:
         return "提问过于频繁，请稍后再试。"
     if status >= 500:
@@ -311,12 +313,10 @@ async def stream_chat(messages: Any) -> AsyncIterator[str]:
         for idx, body in enumerate(variants):
             async with _get_client().stream("POST", url, json=body, headers=headers) as resp:
                 if resp.status_code == 400 and idx + 1 < len(variants):
-                    detail = await _read_error(resp)
-                    logger.info("上游未接受思考开关参数, 去掉后重试: %s", detail[:120])
+                    logger.info("助手请求返回 HTTP 400，移除思考开关后重试")
                     continue                      # 尚未产出任何内容, 可安全重试
                 if resp.status_code != 200:
-                    detail = await _read_error(resp)
-                    logger.warning("DeepSeek 返回 %s: %s", resp.status_code, detail[:200])
+                    logger.warning("助手上游返回 HTTP %s", resp.status_code)
                     yield _sse({"type": "error", "message": _friendly_http_error(resp.status_code)})
                     return
                 async for line in resp.aiter_lines():
@@ -342,12 +342,12 @@ async def stream_chat(messages: Any) -> AsyncIterator[str]:
         logger.warning("DeepSeek 请求超时")
         yield _sse({"type": "error", "message": "助手响应超时，请稍后重试。"})
     except httpx.HTTPError as exc:
-        logger.warning("DeepSeek 网络异常: %s", exc)
+        logger.warning("助手网络异常: %s", type(exc).__name__)
         yield _sse({"type": "error", "message": "无法连接助手服务，请检查网络。"})
     except asyncio.CancelledError:
         raise                                  # 客户端主动断开: 正常传播
     except Exception as exc:                   # 兜底: 绝不把异常抛给上层
-        logger.exception("助手未预期异常: %s", exc)
+        logger.error("助手未预期异常: %s", type(exc).__name__)
         yield _sse({"type": "error", "message": "助手暂时不可用。"})
     finally:
         if acquired:

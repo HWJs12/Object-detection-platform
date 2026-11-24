@@ -39,19 +39,20 @@ max_upload_mb: 300        # 单文件上传大小上限(MB)
 # ================= AI 对话助手(可选, 默认关闭) =================
 # 为「接口文档」页提供 AI 答疑浮窗。三条设计约束:
 #   1. 默认关闭    —— 关闭时页面上不会出现助手入口, 也不发起任何外部请求
-#   2. 密钥不落盘  —— 强烈建议只设环境变量 LLM_API_KEY, 不要写在本文件里
+#   2. 密钥优先从项目专用环境变量 UWD_LLM_API_KEY 读取
 #                     (本模板会入库; 真实配置 config.yaml 已被 .gitignore 排除)
 #   3. 失败不影响主流程 —— 助手不可用时只显示提示, 检测/统计等功能照常
 #
 # 启用步骤:
 #   1) 设置环境变量(推荐):
-#        Windows 命令行   set LLM_API_KEY=sk-xxxxxxxx
-#        PowerShell       $env:LLM_API_KEY="sk-xxxxxxxx"
+#        Windows 命令行   set UWD_LLM_API_KEY=YOUR_API_KEY
+#        PowerShell       $env:UWD_LLM_API_KEY="YOUR_API_KEY"
 #   2) 把下面的 llm_enabled 改为 true
 #   3) 重启服务, 各页面右下角会出现助手入口
 #
 # llm_enabled: false                 # 总开关
-# llm_api_key: ""                    # 留空则只读环境变量 LLM_API_KEY
+# llm_api_key: ""                    # 仅在本机 config.yaml 填写密钥
+#                                    # 优先级: UWD_LLM_API_KEY > 本机配置 > LLM_API_KEY（兼容）
 # llm_base_url: "https://api.deepseek.com"
 # llm_model: "deepseek-flash"        # 当前官方名(= DeepSeek-V4.1-Flash); 另有 deepseek-v4-pro
 #                                    # 注意: deepseek-v4-flash 是旧别名, 已废弃; deepseek-chat 已停用

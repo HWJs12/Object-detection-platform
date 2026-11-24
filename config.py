@@ -8,6 +8,8 @@
     2. 项目根 config.yaml
     3. 本文件中的默认值
 
+助手密钥单独按 UWD_LLM_API_KEY、项目 config.yaml、兼容变量 LLM_API_KEY 的顺序读取。
+
 模型路径说明:
     若未显式指定 MODEL_PATH, 系统会自动在 models/ 目录下查找第一个 .pt 文件。
 """
@@ -91,10 +93,10 @@ class Settings:
     # ================= AI 对话助手(可选, 默认关闭) =================
     # 为接口文档页提供 AI 答疑。三条设计约束:
     #   1. 默认关闭      —— 关闭时前端不渲染入口, 后端不发起任何外部请求
-    #   2. 密钥不落盘    —— 优先读环境变量 LLM_API_KEY, 其次读本项
+    #   2. 优先使用项目专用环境变量 UWD_LLM_API_KEY
     #   3. 不阻塞服务    —— 全程 httpx 异步流式, 失败只降级为提示文案
     llm_enabled: bool = False                # 总开关
-    llm_api_key: str = ""                    # 留空则使用环境变量 LLM_API_KEY
+    llm_api_key: str = ""                    # 可在本机 config.yaml 配置
     llm_base_url: str = "https://api.deepseek.com"
     # 当前官方模型名(2026-09): deepseek-flash = DeepSeek-V4.1-Flash;
     # 另有 deepseek-v4-pro。注意 deepseek-v4-flash 是旧别名, 虽仍可用但已废弃,
@@ -146,8 +148,12 @@ class Settings:
 
     @property
     def llm_api_key_effective(self) -> str:
-        """实际生效的密钥: 环境变量优先(不落盘), 其次配置文件。"""
-        return (os.environ.get("LLM_API_KEY") or self.llm_api_key or "").strip()
+        """优先使用项目密钥，通用环境变量作为旧配置的兼容来源。"""
+        return (
+            os.environ.get("UWD_LLM_API_KEY", "").strip()
+            or (self.llm_api_key or "").strip()
+            or os.environ.get("LLM_API_KEY", "").strip()
+        )
 
     @property
     def llm_ready(self) -> bool:
@@ -168,7 +174,7 @@ class Settings:
         for f in fields(self):
             v = getattr(self, f.name)
             if f.name in _SECRET_FIELDS:
-                data[f.name] = "***" if v else ""
+                data[f.name] = "***" if self.llm_api_key_effective else ""
                 continue
             if isinstance(v, Path):
                 v = v.as_posix()
@@ -197,7 +203,6 @@ _ENV_MAP: Dict[str, str] = {
     "MAX_UPLOAD_MB": "max_upload_mb",
     # AI 助手: 密钥建议只走环境变量, 不写入 config.yaml
     "LLM_ENABLED": "llm_enabled",
-    "LLM_API_KEY": "llm_api_key",
     "LLM_BASE_URL": "llm_base_url",
     "LLM_MODEL": "llm_model",
 }

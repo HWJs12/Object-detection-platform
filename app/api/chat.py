@@ -55,7 +55,7 @@ async def chat_stream(payload: Dict[str, Any] = Body(default={})) -> StreamingRe
     if not llm.is_ready():
         raise AppError(
             "AI 助手未启用。请将 config.yaml 中的 llm_enabled 设为 true, "
-            "并通过环境变量 LLM_API_KEY 提供密钥。",
+            "并通过项目环境变量 UWD_LLM_API_KEY 或本机配置提供密钥。",
             code="LLM_DISABLED",
             status_code=503,
         )

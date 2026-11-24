@@ -6,6 +6,7 @@
     <title>首页 - 水下海洋生物目标检测与分析系统</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/visuals.css">
+    <link rel="stylesheet" href="css/marine-shell.css">
 </head>
 <body>
 <header class="navbar">
@@ -27,10 +28,13 @@
 </header>
 
 <div class="container home-page">
-    <div class="home-heading"><div><p class="home-eyebrow">MARINE RESEARCH WORKSPACE</p><h1 class="page-title">系统概览</h1><p class="page-desc">观测、检测与分析，尽在一处</p></div><span class="home-heading-note">基于 GSCNet 的海洋生物检测平台</span></div>
-
+    <div class="home-heading"><div><p class="home-eyebrow">海洋生物 · 检测与调查</p><h1 class="page-title">系统概览</h1><p class="page-desc">查看检测情况，继续您的海洋调查工作。</p></div></div>
     <div id="alert-box"></div>
-
+    <section class="home-hero" aria-label="平台简介">
+        <div class="home-hero-copy"><span class="hero-label">GSCNET · 海洋生物识别</span><h2>让海洋影像<br>成为可追溯的数据</h2><p>从影像检测到站点调查与结果分析，在一个工作空间中完成。</p><div class="hero-actions"><a href="detect_image.html">开始图片检测 <span aria-hidden="true">→</span></a><a href="survey_map.html">查看养殖地形图 <span aria-hidden="true">→</span></a></div></div>
+        <figure class="home-hero-image"><img src="assets/marine-research-photo.jpg" alt="浅海中生长的海藻和鱼类"></figure>
+    </section>
+    <div class="home-section-heading"><div><span>OVERVIEW</span><h2>检测概况</h2></div><p>数据来自平台已有检测记录</p></div>
     <div class="grid-4">
         <div class="stat-card">
             <div class="label">今日检测次数</div>
@@ -59,9 +63,9 @@
             <h2 class="card-title">开始工作</h2>
             <p class="home-section-desc">先选择调查站点，再上传图片或视频进行检测。</p>
             <div class="home-action-grid">
-                <a class="home-action" href="survey_map.html"><img class="home-action-icon" src="assets/home-station.svg" alt="" aria-hidden="true"><span class="home-action-number">01</span><strong>布设站点</strong><span>管理调查位置与水深</span><span class="home-action-arrow" aria-hidden="true">↗</span></a>
-                <a class="home-action" href="detect_image.html"><img class="home-action-icon" src="assets/home-image.svg" alt="" aria-hidden="true"><span class="home-action-number">02</span><strong>图片检测</strong><span>上传影像并查看结果</span><span class="home-action-arrow" aria-hidden="true">↗</span></a>
-                <a class="home-action" href="detect_video.html"><img class="home-action-icon" src="assets/home-video.svg" alt="" aria-hidden="true"><span class="home-action-number">03</span><strong>视频检测</strong><span>跟踪目标与检测进度</span><span class="home-action-arrow" aria-hidden="true">↗</span></a>
+                <a class="home-action" href="survey_map.html"><img class="home-action-icon" src="assets/work-station.svg" alt="" aria-hidden="true"><span class="home-action-number">01</span><strong>布设站点</strong><span>管理调查位置与水深</span><span class="home-action-arrow" aria-hidden="true">↗</span></a>
+                <a class="home-action" href="detect_image.html"><img class="home-action-icon" src="assets/work-camera.svg" alt="" aria-hidden="true"><span class="home-action-number">02</span><strong>图片检测</strong><span>上传影像并查看结果</span><span class="home-action-arrow" aria-hidden="true">↗</span></a>
+                <a class="home-action" href="detect_video.html"><img class="home-action-icon" src="assets/work-video.svg" alt="" aria-hidden="true"><span class="home-action-number">03</span><strong>视频检测</strong><span>跟踪目标与检测进度</span><span class="home-action-arrow" aria-hidden="true">↗</span></a>
             </div>
             <div class="home-secondary-links"><span>查看数据</span><a href="records.html">检测记录 →</a><a href="gallery.html">目标图库 →</a><a href="stats.html">数据统计 →</a></div>
         </section>

@@ -124,52 +124,47 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 /** 当前页面导航高亮 */
 function initNav() {
-    const path = location.pathname.split('/').pop() || 'index.html';
-    $$('.navbar nav a').forEach((a) => {
-        const href = a.getAttribute('href');
-        if (href === path || (path === '' && href === 'index.html')) {
-            a.classList.add('active');
-        }
-    });
     const nav = document.querySelector('.navbar nav');
     const bar = document.querySelector('.navbar .nav-inner');
-    if (nav && bar && !bar.querySelector('.nav-menu-toggle')) {
-        const moreLinks = Array.from(nav.querySelectorAll('a')).filter((a) => ['system.html', 'api_docs.html'].includes(a.getAttribute('href')));
-        if (moreLinks.length) {
-            const more = document.createElement('details');
-            more.className = 'nav-more';
-            const summary = document.createElement('summary');
-            summary.textContent = '更多';
-            if (moreLinks.some((a) => a.classList.contains('active'))) summary.classList.add('active');
-            more.appendChild(summary);
-            const panel = document.createElement('div');
-            panel.className = 'nav-more-panel';
-            moreLinks.forEach((a) => panel.appendChild(a));
-            more.appendChild(panel);
-            nav.appendChild(more);
-        }
-        nav.id = 'site-navigation';
-        const toggle = document.createElement('button');
-        toggle.type = 'button';
-        toggle.className = 'nav-menu-toggle';
-        toggle.textContent = '菜单';
-        toggle.setAttribute('aria-controls', nav.id);
-        toggle.setAttribute('aria-expanded', 'false');
-        toggle.addEventListener('click', () => {
-            const opened = nav.classList.toggle('is-open');
-            toggle.setAttribute('aria-expanded', String(opened));
-        });
-        nav.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape') {
-                nav.classList.remove('is-open');
-                toggle.setAttribute('aria-expanded', 'false');
-                nav.querySelectorAll('details[open]').forEach((item) => { item.open = false; });
-                if (window.matchMedia('(max-width: 1100px)').matches) toggle.focus();
+    if (!nav || !bar) { loadRuntimeStatus(); return; }
+    const links = Array.from(nav.querySelectorAll('a'));
+    const byPath = new Map(links.map(link => [link.getAttribute('href'), link]));
+    const groups = [
+        ['总览', ['index.html']],
+        ['检测工作', ['detect_image.html', 'detect_video.html']],
+        ['调查与数据', ['survey_map.html', 'records.html', 'gallery.html', 'stats.html']],
+        ['系统', ['system.html', 'api_docs.html']],
+    ];
+    const current = location.pathname.split('/').pop() || 'index.html';
+    nav.replaceChildren();
+    groups.forEach(([name, paths]) => {
+        const existing = paths.map(path => byPath.get(path)).filter(Boolean);
+        if (!existing.length) return;
+        const section = document.createElement('div');
+        section.className = 'shell-nav-group';
+        const label = document.createElement('div');
+        label.className = 'shell-nav-label'; label.textContent = name;
+        section.appendChild(label);
+        existing.forEach(link => {
+            if (link.getAttribute('href') === current) {
+                link.classList.add('active'); link.setAttribute('aria-current', 'page');
             }
+            section.appendChild(link);
         });
-        bar.insertBefore(toggle, nav);
-        bar.classList.add('nav-ready');
-    }
+        nav.appendChild(section);
+    });
+    nav.id = 'site-navigation';
+    const toggle = document.createElement('button');
+    toggle.type = 'button'; toggle.className = 'nav-menu-toggle'; toggle.textContent = '菜单';
+    toggle.setAttribute('aria-controls', nav.id); toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+        const opened = nav.classList.toggle('is-open');
+        toggle.setAttribute('aria-expanded', String(opened));
+    });
+    nav.addEventListener('keydown', event => {
+        if (event.key === 'Escape') { nav.classList.remove('is-open'); toggle.setAttribute('aria-expanded', 'false'); toggle.focus(); }
+    });
+    bar.insertBefore(toggle, nav); bar.classList.add('nav-ready');
     loadRuntimeStatus();
 }
 

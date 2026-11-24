@@ -10,7 +10,13 @@ data/
 !data/.gitkeep
 
 # 模型权重不入库
-models/*.pt
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.engine
+*.ckpt
+models/data.yaml
 
 # 本地实际配置(可能含 API Key), 不入库; 模板 config.example.yaml 保留
 config.yaml
@@ -19,7 +25,21 @@ config.yaml
 .env
 .env.*
 *.key
+*.pem
 secrets.yaml
+
+# 本机开发设置、个人材料及检测素材
+.vscode/
+push.bat
+article-writer/
+samples/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.sqlite*
+*.db
+*.db-*
 
 # 测评与临时产物
 tmp/
@@ -30,6 +50,7 @@ docs/_pid_check.txt
 docs/architecture-quality.md
 docs/quality-assessment.md
 docs/screenshots/
+docs/*-20??-??-??.md
 docs/knowledge-map.html
 docs/modules-and-prerequisites.md
 *.bak.html
